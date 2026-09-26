@@ -1,0 +1,38 @@
+{
+  "name": "exam-portal-server",
+  "version": "1.0.0",
+  "description": "Backend API Server for Exam Portal",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "reset-db": "node scripts/resetData.js"
+  },
+  "keywords": [
+    "express",
+    "mongodb",
+    "mongoose",
+    "exam-portal"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "exam-portal": "file:..",
+    "express": "^4.19.2",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mammoth": "^1.12.3",
+    "mongoose": "^8.3.1",
+    "morgan": "^1.10.0",
+    "multer": "^2.4.0",
+    "nodemailer": "^10.0.10",
+    "pdf-parse": "^2.4.5",
+    "pdfkit": "^0.20.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
