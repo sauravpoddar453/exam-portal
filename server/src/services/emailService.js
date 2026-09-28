@@ -37,7 +37,7 @@ const getNodemailerTransporter = () => {
  */
 const sendEmail = async ({ to, subject, html, text }) => {
   const recipient = Array.isArray(to) ? to : [to];
-  const fromAddress = process.env.RESEND_FROM_EMAIL || 'ExamPortal <onboarding@resend.dev>';
+  const fromAddress = process.env.RESEND_FROM_EMAIL || 'ExamPortal <noreply@spcreative.in>';
 
   console.log(`\n=================== SENDING EMAIL ===================`);
   console.log(`[Email] Recipient(s):`, recipient);
