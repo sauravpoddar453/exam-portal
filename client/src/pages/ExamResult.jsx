@@ -255,7 +255,9 @@ export default function ExamResult() {
           <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0" />
           <span>
             <strong className="text-red-950 font-bold uppercase tracking-wide">Auto-Submitted (Security Violation):</strong> This examination attempt was forcibly submitted due to {
-              result.autoSubmitReason === 'tab_switch_limit_exceeded'
+              result.autoSubmitReason === 'camera_violation_limit_exceeded'
+                ? 'repeated camera proctoring violations (missing face / looking away / multiple faces)'
+                : result.autoSubmitReason === 'tab_switch_limit_exceeded'
                 ? 'repeated tab-switching violations'
                 : result.autoSubmitReason === 'fullscreen_exit_limit_exceeded'
                 ? '3 full-screen exit violations'
@@ -267,7 +269,7 @@ export default function ExamResult() {
 
       {/* Proctoring & Security Audit Card */}
       <div className={`glass-card p-6 border transition-all ${
-        result.isFlagged || (result.tabSwitchCount > 0) || (result.fullscreenExitCount > 0)
+        result.isFlagged || (result.tabSwitchCount > 0) || (result.fullscreenExitCount > 0) || (result.cameraViolationCount > 0)
           ? 'border-amber-300 bg-amber-50/40'
           : 'border-emerald-200 bg-emerald-50/20'
       }`}>
@@ -293,7 +295,7 @@ export default function ExamResult() {
             </div>
           </div>
 
-          <div className="flex items-center gap-4 text-xs font-mono">
+          <div className="flex items-center gap-3 text-xs font-mono">
             <div className="px-3 py-1.5 rounded-xl bg-gray-50 border border-gray-200 text-center">
               <span className="text-gray-500 text-[10px] block uppercase">Tab Switches</span>
               <span className={`font-bold ${result.tabSwitchCount > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
@@ -304,6 +306,12 @@ export default function ExamResult() {
               <span className="text-gray-500 text-[10px] block uppercase">Fullscreen Exits</span>
               <span className={`font-bold ${result.fullscreenExitCount > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
                 {result.fullscreenExitCount || 0} Exits
+              </span>
+            </div>
+            <div className="px-3 py-1.5 rounded-xl bg-gray-50 border border-gray-200 text-center">
+              <span className="text-gray-500 text-[10px] block uppercase">Camera Incidents</span>
+              <span className={`font-bold ${result.cameraViolationCount > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                {result.cameraViolationCount || 0} Incidents
               </span>
             </div>
           </div>

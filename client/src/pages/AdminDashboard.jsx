@@ -1176,15 +1176,26 @@ export default function AdminDashboard() {
                           {a.tabSwitchCount || 0} Switch(es)
                         </span>
                       </td>
-                      <td className="p-4">
+                      <td className="p-4 font-mono">
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 border border-gray-200 text-gray-700">
                           {a.fullscreenExitCount || 0} Exit(s)
+                        </span>
+                        <span className="ml-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-50 border border-rose-200 text-rose-700">
+                          {a.cameraViolationCount || 0} Cam
                         </span>
                       </td>
                       <td className="p-4">
                         {a.autoSubmitted ? (
                           <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 uppercase">
-                            Yes ({a.autoSubmitReason || 'Security Alert'})
+                            Yes ({
+                              a.autoSubmitReason === 'camera_violation_limit_exceeded'
+                                ? 'Camera Violation'
+                                : a.autoSubmitReason === 'tab_switch_limit_exceeded'
+                                ? 'Tab Switch'
+                                : a.autoSubmitReason === 'fullscreen_exit_limit_exceeded'
+                                ? 'FS Exit'
+                                : 'Security Violation'
+                            })
                           </span>
                         ) : (
                           <span className="text-gray-400 text-[11px]">No</span>

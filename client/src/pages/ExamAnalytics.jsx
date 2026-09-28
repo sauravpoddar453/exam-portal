@@ -271,12 +271,18 @@ export default function ExamAnalytics() {
                       {att.autoSubmitted || att.autoSubmitReason ? (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-800 border border-red-300 shadow-sm">
                           <ShieldAlert className="w-3 h-3 text-red-600" />
-                          Auto-Submitted (Security Violation)
+                          {att.autoSubmitReason === 'camera_violation_limit_exceeded'
+                            ? 'Auto-Submitted: Camera Violation'
+                            : att.autoSubmitReason === 'tab_switch_limit_exceeded'
+                            ? 'Auto-Submitted: Tab Switch Violation'
+                            : att.autoSubmitReason === 'fullscreen_exit_limit_exceeded'
+                            ? 'Auto-Submitted: Fullscreen Exit Violation'
+                            : 'Auto-Submitted: Security Violation'}
                         </span>
-                      ) : att.isFlagged || (att.tabSwitchCount > 0) || (att.fullscreenExitCount > 0) ? (
+                      ) : att.isFlagged || (att.tabSwitchCount > 0) || (att.fullscreenExitCount > 0) || (att.cameraViolationCount > 0) ? (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
                           <ShieldAlert className="w-3 h-3 text-amber-600" />
-                          {att.isFlagged ? 'Flagged' : 'Warnings'} ({att.tabSwitchCount || 0} Tabs, {att.fullscreenExitCount || 0} Exits)
+                          {att.isFlagged ? 'Flagged' : 'Warnings'} ({att.tabSwitchCount || 0} Tabs, {att.fullscreenExitCount || 0} Exits, {att.cameraViolationCount || 0} Cam)
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">

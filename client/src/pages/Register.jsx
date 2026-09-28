@@ -68,7 +68,7 @@ export default function Register() {
             <UserPlus className="w-8 h-8" />
           </div>
           <h2 className="text-2xl font-extrabold text-gray-900">Create Account</h2>
-          <p className="text-gray-500 text-xs mt-1">Register for the Exam Portal as a Student, Teacher, or Admin</p>
+          <p className="text-gray-500 text-xs mt-1">Register for the Exam Portal as a Student or Teacher</p>
         </div>
 
         {errorMessage && (
@@ -83,11 +83,10 @@ export default function Register() {
           {/* Role selection dropdown */}
           <div>
             <label className="block text-xs font-semibold text-gray-700 mb-1.5">Register As Role</label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               {[
                 { id: 'student', label: 'Student' },
                 { id: 'teacher', label: 'Teacher' },
-                { id: 'admin', label: 'Admin' },
               ].map((r) => (
                 <button
                   key={r.id}
