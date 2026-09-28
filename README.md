@@ -92,6 +92,14 @@ Create `client/.env.local` based on `client/.env.example`:
 VITE_API_URL=http://localhost:5000
 ```
 
+#### Admin Account Creation (Server Seed Script)
+To create the first admin account, run `node scripts/createAdmin.js` from the server directory. This should only be done once, directly on the server/database - never expose this as a public-facing feature.
+
+```bash
+cd server
+node scripts/createAdmin.js
+```
+
 ---
 
 ### 4. Running Locally
@@ -160,9 +168,19 @@ npm run dev
    | `JWT_SECRET` | A secure random 32+ character string |
    | `JWT_EXPIRE` | `30d` |
    | `CLIENT_URL` | Your Vercel frontend URL, e.g. `https://exam-portal.vercel.app` |
-   | `EMAIL_USER` | Your Gmail address (for OTP & exam reminders) |
-   | `EMAIL_PASS` | Gmail App Password |
+   | `RESEND_API_KEY` | Free API Key from [Resend](https://resend.com) (Recommended to bypass Render SMTP port blocking) |
+   | `RESEND_FROM_EMAIL` | `ExamPortal <onboarding@resend.dev>` (or your custom domain) |
+   | `EMAIL_USER` | Legacy fallback Gmail address |
+   | `EMAIL_PASS` | Legacy fallback Gmail App Password |
    | `ANTHROPIC_API_KEY` | Optional: Anthropic API key for AI document parsing |
+
+#### How to Obtain a Free Resend API Key for Production Emails:
+1. Sign up for a free account at [resend.com](https://resend.com) (includes 3,000 free emails/month).
+2. Go to **API Keys** -> **Create API Key**.
+3. Name your key `ExamPortal-Render` and copy the generated token (`re_...`).
+4. Add `RESEND_API_KEY=re_...` to your Environment Variables in Render's dashboard.
+5. Outbound emails (OTPs, reminders, results) will now send reliably over HTTPS API calls on Render!
+
 6. Deploy the service and note your deployed URL (e.g., `https://exam-portal-api.onrender.com`).
 
 ---

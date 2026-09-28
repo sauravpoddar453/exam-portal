@@ -36,7 +36,7 @@ const answerSchema = new mongoose.Schema({
 const proctoringLogSchema = new mongoose.Schema({
   eventType: {
     type: String,
-    enum: ['tab-switch', 'window-blur', 'fullscreen-exit', 'copy-paste-attempt'],
+    enum: ['tab-switch', 'window-blur', 'fullscreen-exit', 'copy-paste-attempt', 'camera-violation', 'face-not-detected', 'multiple-faces-detected', 'looking-away'],
     required: true,
   },
   timestamp: {
@@ -68,6 +68,10 @@ const attemptSchema = new mongoose.Schema(
       default: 0,
     },
     fullscreenExitCount: {
+      type: Number,
+      default: 0,
+    },
+    cameraViolationCount: {
       type: Number,
       default: 0,
     },

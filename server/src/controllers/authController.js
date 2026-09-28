@@ -90,8 +90,23 @@ const registerUser = async (req, res, next) => {
       });
     }
 
-    const validRoles = ['admin', 'teacher', 'student'];
-    const userRole = role && validRoles.includes(role.toLowerCase()) ? role.toLowerCase() : 'student';
+    // Reject admin self-registration immediately with 403 Forbidden
+    if (role && role.toString().trim().toLowerCase() === 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin accounts cannot be created through public registration',
+      });
+    }
+
+    const validRoles = ['student', 'teacher'];
+    const requestedRole = role ? role.toString().trim().toLowerCase() : 'student';
+    if (!validRoles.includes(requestedRole)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid role. Self-registration is only permitted for Student or Teacher accounts.',
+      });
+    }
+    const userRole = requestedRole;
     const cleanEmail = email.toLowerCase().trim();
 
     // Generate 6-digit OTP code and expiry (10 minutes)

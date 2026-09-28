@@ -292,7 +292,7 @@ const logProctoringViolation = async (req, res, next) => {
     const { id } = req.params;
     const { eventType, details } = req.body;
 
-    const validEvents = ['tab-switch', 'window-blur', 'fullscreen-exit', 'copy-paste-attempt'];
+    const validEvents = ['tab-switch', 'window-blur', 'fullscreen-exit', 'copy-paste-attempt', 'camera-violation', 'face-not-detected', 'multiple-faces-detected', 'looking-away'];
     if (!eventType || !validEvents.includes(eventType)) {
       return res.status(400).json({ success: false, message: 'Invalid proctoring event type.' });
     }
@@ -316,13 +316,26 @@ const logProctoringViolation = async (req, res, next) => {
         attempt.tabSwitchCount = (attempt.tabSwitchCount || 0) + 1;
       } else if (eventType === 'fullscreen-exit') {
         attempt.fullscreenExitCount = (attempt.fullscreenExitCount || 0) + 1;
+      } else if (['camera-violation', 'face-not-detected', 'multiple-faces-detected', 'looking-away'].includes(eventType)) {
+        attempt.cameraViolationCount = (attempt.cameraViolationCount || 0) + 1;
       }
 
       let autoSubmitted = false;
       let autoSubmitReason = null;
 
+      // Auto-submit ON 2nd camera violation (strict 2-strike rule)
+      if (attempt.cameraViolationCount >= 2 && attempt.status === 'in-progress') {
+        attempt.status = 'timed-out';
+        attempt.submittedAt = new Date();
+        attempt.remainingSeconds = 0;
+        attempt.autoSubmitted = true;
+        attempt.autoSubmitReason = 'camera_violation_limit_exceeded';
+        attempt.isFlagged = true;
+        autoSubmitted = true;
+        autoSubmitReason = 'camera_violation_limit_exceeded';
+      }
       // Auto-submit ON 2nd tab-switch (strict 2-strike rule)
-      if (attempt.tabSwitchCount >= 2 && attempt.status === 'in-progress') {
+      else if (attempt.tabSwitchCount >= 2 && attempt.status === 'in-progress') {
         attempt.status = 'timed-out';
         attempt.submittedAt = new Date();
         attempt.remainingSeconds = 0;
@@ -351,6 +364,7 @@ const logProctoringViolation = async (req, res, next) => {
         message: 'Proctoring security incident logged.',
         tabSwitchCount: attempt.tabSwitchCount,
         fullscreenExitCount: attempt.fullscreenExitCount,
+        cameraViolationCount: attempt.cameraViolationCount,
         isFlagged: attempt.isFlagged,
         autoSubmitted,
         autoSubmitReason,
