@@ -5,7 +5,6 @@ import { safeFetchJson } from '../utils/api';
 import BrandedLoader from '../components/BrandedLoader';
 import { 
   Clock, 
-  CheckCircle2, 
   Bookmark, 
   ChevronLeft, 
   ChevronRight, 
@@ -13,19 +12,10 @@ import {
   RotateCcw, 
   AlertTriangle, 
   Award, 
-  BookOpen, 
   ShieldAlert,
-  Save,
   GraduationCap,
-  Maximize,
-  Minimize,
-  Lock,
-  EyeOff,
-  Camera,
-  Video,
-  VideoOff
+  Lock
 } from 'lucide-react';
-import { initWebcamStream, stopWebcamStream, loadFaceApiModels, analyzeVideoFrame } from '../utils/faceProctor';
 
 export default function TakeExam() {
   const { examId } = useParams();
@@ -48,15 +38,9 @@ export default function TakeExam() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Anti-Cheating & Proctoring Security State
+  // Anti-Cheating & Proctoring Security State (Tab Switch Only)
   const [proctorWarningBanner, setProctorWarningBanner] = useState('');
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
-  const [fullscreenExits, setFullscreenExits] = useState(0);
-  const [cameraViolationCount, setCameraViolationCount] = useState(0);
-  const [cameraStatus, setCameraStatus] = useState('initializing'); // 'initializing' | 'active' | 'denied' | 'error'
-  const [cameraDeniedModal, setCameraDeniedModal] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showFullscreenModal, setShowFullscreenModal] = useState(false);
   const [autoSubmitNoticeMessage, setAutoSubmitNoticeMessage] = useState('');
   const [showAutoSubmitNotice, setShowAutoSubmitNotice] = useState(false);
 
@@ -73,14 +57,9 @@ export default function TakeExam() {
   const attemptRef = useRef(attempt);
   attemptRef.current = attempt;
   const lastTabSwitchRef = useRef(0);
+  const tabSwitchCountRef = useRef(0);
   const hasInitializedRef = useRef(false);
   const hasSubmittedRef = useRef(false);
-
-  // Camera & Face Detection Refs
-  const videoRef = useRef(null);
-  const webcamStreamRef = useRef(null);
-  const cameraViolationCountRef = useRef(0);
-  const consecutiveLookingAwayRef = useRef(0);
 
   const getDashboardPath = useCallback(() => {
     return user?.role === 'student' ? '/student' : '/dashboard';
@@ -122,10 +101,9 @@ export default function TakeExam() {
       const ex = data.exam || { title: 'Online Examination', durationMinutes: 60 };
       setExam(ex);
 
-      setTabSwitchCount(data.data.tabSwitchCount || 0);
-      setFullscreenExits(data.data.fullscreenExitCount || 0);
-      setCameraViolationCount(data.data.cameraViolationCount || 0);
-      cameraViolationCountRef.current = data.data.cameraViolationCount || 0;
+      const initialTabCount = data.data.tabSwitchCount || 0;
+      setTabSwitchCount(initialTabCount);
+      tabSwitchCountRef.current = initialTabCount;
 
       // Format Questions Array
       let qList = [];
@@ -232,15 +210,10 @@ export default function TakeExam() {
     return () => clearInterval(autoSaveInterval);
   }, [loading, resultData, attempt, saveAnswersToBackend]);
 
-  // 7. Handle Final Submission
+  // 4. Handle Final Submission
   const handleFinalSubmit = useCallback(async (isTimedOut = false, autoSubmitReason = null) => {
     if (!attemptRef.current || hasSubmittedRef.current) return;
     hasSubmittedRef.current = true;
-
-    if (webcamStreamRef.current) {
-      stopWebcamStream(webcamStreamRef.current);
-      webcamStreamRef.current = null;
-    }
 
     try {
       setSubmitting(true);
@@ -266,38 +239,16 @@ export default function TakeExam() {
         }),
       });
 
-      if (document.fullscreenElement) {
-        document.exitFullscreen().catch(() => {});
-      }
-
       if (ok && data?.success) {
         setResultData(data.data);
         setShowSubmitConfirm(false);
 
         const reason = autoSubmitReason || data.data?.autoSubmitReason;
 
-        if (reason === 'camera_violation_limit_exceeded' || cameraViolationCountRef.current >= 2) {
-          setProctorWarningBanner('🔒 SECURITY VIOLATION: Test submitted due to camera proctoring violations. Redirecting...');
-          setTimeout(() => {
-            alert('SECURITY VIOLATION: Your test has been automatically submitted due to repeated camera proctoring violations.');
-            navigate(getDashboardPath(), { replace: true });
-          }, 1000);
-          return;
-        }
-
         if (reason === 'tab_switch_limit_exceeded' || tabSwitchCountRef.current >= 2) {
           setProctorWarningBanner('🔒 SECURITY VIOLATION: Test submitted due to tab-switch violations. Redirecting...');
           setTimeout(() => {
             alert('SECURITY VIOLATION: Your test has been automatically submitted due to repeated tab-switching violations.');
-            navigate(getDashboardPath(), { replace: true });
-          }, 1000);
-          return;
-        }
-
-        if (reason === 'fullscreen_exit_limit_exceeded') {
-          setProctorWarningBanner('🔒 SECURITY VIOLATION: Test submitted due to full-screen exit violations. Redirecting...');
-          setTimeout(() => {
-            alert('SECURITY VIOLATION: Your test has been automatically submitted due to 3 full-screen exit violations.');
             navigate(getDashboardPath(), { replace: true });
           }, 1000);
           return;
@@ -331,7 +282,7 @@ export default function TakeExam() {
     }
   }, [token, navigate, getDashboardPath]);
 
-  // 4. Log Proctoring Violation API Helper
+  // 5. Log Proctoring Violation API Helper
   const reportProctoringViolation = useCallback(async (eventType, details) => {
     if (!attemptRef.current || resultData || hasSubmittedRef.current) return;
 
@@ -347,10 +298,9 @@ export default function TakeExam() {
 
       if (ok && data?.success) {
         if (data.tabSwitchCount !== undefined) setTabSwitchCount(data.tabSwitchCount);
-        if (data.fullscreenExitCount !== undefined) setFullscreenExits(data.fullscreenExitCount);
 
         if (data.autoSubmitted && !hasSubmittedRef.current) {
-          const reason = data.autoSubmitReason || (eventType === 'tab-switch' || eventType === 'window-blur' ? 'tab_switch_limit_exceeded' : 'fullscreen_exit_limit_exceeded');
+          const reason = data.autoSubmitReason || 'tab_switch_limit_exceeded';
           handleFinalSubmit(true, reason);
         }
       }
@@ -359,9 +309,7 @@ export default function TakeExam() {
     }
   }, [token, resultData, handleFinalSubmit]);
 
-  const tabSwitchCountRef = useRef(0);
-
-  // 5. Tab-Switching & Window Blur Event Listener (Strict 2-Strike Rule)
+  // 6. Tab-Switching & Window Blur Event Listener (Strict 2-Strike Rule)
   useEffect(() => {
     if (loading || resultData || !attempt || hasSubmittedRef.current) return;
 
@@ -405,137 +353,6 @@ export default function TakeExam() {
       window.removeEventListener('blur', handleWindowBlur);
     };
   }, [loading, resultData, attempt, reportProctoringViolation, handleFinalSubmit]);
-
-  // 6. Full-Screen Enforcement & Change Listener
-  const requestFullScreen = () => {
-    const elem = document.documentElement;
-    if (elem.requestFullscreen) {
-      elem.requestFullscreen().catch(err => console.warn('Fullscreen request failed:', err));
-    } else if (elem.webkitRequestFullscreen) {
-      elem.webkitRequestFullscreen();
-    }
-    setIsFullscreen(true);
-    setShowFullscreenModal(false);
-  };
-
-  useEffect(() => {
-    if (loading || resultData || !attempt || hasSubmittedRef.current) return;
-
-    const handleFullScreenChange = () => {
-      if (hasSubmittedRef.current) return;
-      const isFS = !!document.fullscreenElement || !!document.webkitFullscreenElement;
-      setIsFullscreen(isFS);
-
-      if (!isFS) {
-        setShowFullscreenModal(true);
-        reportProctoringViolation('fullscreen-exit', 'User exited forced full-screen mode.');
-      }
-    };
-
-    document.addEventListener('fullscreenchange', handleFullScreenChange);
-    document.addEventListener('webkitfullscreenchange', handleFullScreenChange);
-
-    return () => {
-      document.removeEventListener('fullscreenchange', handleFullScreenChange);
-      document.removeEventListener('webkitfullscreenchange', handleFullScreenChange);
-    };
-  }, [loading, resultData, attempt, reportProctoringViolation]);
-
-  // 6.5. Webcam Initialization & MediaStream Lifecycle
-  useEffect(() => {
-    if (loading || resultData || !attempt || hasSubmittedRef.current) return;
-
-    let isSubscribed = true;
-
-    async function setupWebcam() {
-      try {
-        setCameraStatus('initializing');
-        loadFaceApiModels().catch(() => {});
-
-        const stream = await initWebcamStream(videoRef.current);
-        if (!isSubscribed) {
-          stopWebcamStream(stream);
-          return;
-        }
-
-        webcamStreamRef.current = stream;
-        setCameraStatus('active');
-        setCameraDeniedModal(false);
-      } catch (err) {
-        if (!isSubscribed) return;
-        console.warn('[TakeExam] Webcam initialization error:', err.message);
-        setCameraStatus('denied');
-        setCameraDeniedModal(true);
-      }
-    }
-
-    setupWebcam();
-
-    return () => {
-      isSubscribed = false;
-      if (webcamStreamRef.current) {
-        stopWebcamStream(webcamStreamRef.current);
-        webcamStreamRef.current = null;
-      }
-    };
-  }, [loading, resultData, attempt]);
-
-  // 6.6. Periodic Webcam Face Detection Loop
-  useEffect(() => {
-    if (loading || resultData || !attempt || hasSubmittedRef.current || cameraStatus !== 'active') return;
-
-    const faceCheckInterval = setInterval(async () => {
-      if (hasSubmittedRef.current || !videoRef.current) return;
-
-      try {
-        const analysis = await analyzeVideoFrame(videoRef.current);
-        if (hasSubmittedRef.current) return;
-
-        let shouldTriggerViolation = false;
-        let violationDetails = '';
-
-        if (analysis.issueType === 'NO_FACE') {
-          shouldTriggerViolation = true;
-          violationDetails = 'No face detected in camera frame.';
-        } else if (analysis.issueType === 'MULTIPLE_FACES') {
-          shouldTriggerViolation = true;
-          violationDetails = `Multiple faces (${analysis.faceCount}) detected in camera frame.`;
-        } else if (analysis.issueType === 'LOOKING_AWAY') {
-          consecutiveLookingAwayRef.current += 1;
-          if (consecutiveLookingAwayRef.current >= 2) {
-            shouldTriggerViolation = true;
-            violationDetails = 'Candidate looking away from screen for a sustained duration.';
-            consecutiveLookingAwayRef.current = 0;
-          }
-        } else if (analysis.issueType === 'OK') {
-          consecutiveLookingAwayRef.current = 0;
-        }
-
-        if (shouldTriggerViolation) {
-          cameraViolationCountRef.current += 1;
-          const newCount = cameraViolationCountRef.current;
-          setCameraViolationCount(newCount);
-
-          if (newCount >= 2) {
-            setProctorWarningBanner('⚠️ SECURITY VIOLATION: Maximum camera violations exceeded! Auto-submitting test now...');
-            reportProctoringViolation('camera-violation', `${violationDetails} (2nd occurrence - Auto-Submitting)`).catch(() => {});
-            if (webcamStreamRef.current) {
-              stopWebcamStream(webcamStreamRef.current);
-              webcamStreamRef.current = null;
-            }
-            handleFinalSubmit(true, 'camera_violation_limit_exceeded');
-          } else {
-            setProctorWarningBanner(`⚠️ SECURITY WARNING: Camera violation detected (${analysis.message}). One more camera violation will auto-submit your test.`);
-            reportProctoringViolation('camera-violation', `${violationDetails} (1st warning)`).catch(() => {});
-          }
-        }
-      } catch (err) {
-        console.warn('[TakeExam] Face detection loop error:', err.message);
-      }
-    }, 3500);
-
-    return () => clearInterval(faceCheckInterval);
-  }, [loading, resultData, attempt, cameraStatus, reportProctoringViolation, handleFinalSubmit]);
 
   const preventCopyPaste = (e) => {
     e.preventDefault();
@@ -617,7 +434,7 @@ export default function TakeExam() {
   const unansweredCount = questions.length - answeredCount;
 
   if (loading) {
-    return <BrandedLoader message="Initializing proctored examination environment..." />;
+    return <BrandedLoader message="Initializing examination session..." />;
   }
 
   if (error) {
@@ -673,12 +490,12 @@ export default function TakeExam() {
               {exam?.title || 'Examination Session'}
             </h1>
             <span className="text-[10px] text-[#a5a3c9] font-mono">
-              Code: {exam?.code} | Proctoring Active 🔒
+              Code: {exam?.code} | Tab Monitoring Active 🔒
             </span>
           </div>
         </div>
 
-        {/* Center: Countdown Timer (with pulsing effect when < 2 mins) */}
+        {/* Center: Countdown Timer */}
         <div className={`px-4 py-1.5 rounded-xl border flex items-center gap-2 text-sm font-mono font-extrabold shadow-inner ${
           isLowTime 
             ? 'bg-rose-500/20 border-rose-500/40 text-rose-300 animate-timer-pulse'
@@ -692,16 +509,6 @@ export default function TakeExam() {
 
         {/* Right Controls */}
         <div className="flex items-center gap-3">
-          {!isFullscreen && (
-            <button
-              onClick={requestFullScreen}
-              className="px-3 py-1.5 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 text-xs font-semibold flex items-center gap-1.5 hover:bg-amber-500/20 transition-all cursor-pointer"
-            >
-              <Maximize className="w-3.5 h-3.5" />
-              Full-Screen
-            </button>
-          )}
-
           <button
             onClick={() => setShowSubmitConfirm(true)}
             className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-indigo-950 font-bold text-xs shadow-md shadow-amber-500/20 transition-transform flex items-center gap-1.5 cursor-pointer"
@@ -907,56 +714,18 @@ export default function TakeExam() {
         {/* Right 1 Column: Question Palette & Proctoring Status */}
         <div className="space-y-6">
           
-          {/* Live Proctoring Webcam Viewport */}
-          <div className="glass-card p-3.5 border border-amber-500/15 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-white flex items-center gap-1.5">
-                <Camera className="w-3.5 h-3.5 text-amber-400 animate-pulse" /> Live Camera Preview
-              </span>
-              <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-mono font-bold ${
-                cameraStatus === 'active' ? 'bg-teal-500/10 text-teal-300 border border-teal-500/20' : 'bg-rose-500/10 text-rose-300 border border-rose-500/20'
-              }`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${cameraStatus === 'active' ? 'bg-teal-400 animate-ping' : 'bg-rose-500'}`} />
-                {cameraStatus === 'active' ? 'PROCTORING' : 'OFFLINE'}
-              </span>
-            </div>
-            
-            <div className="relative rounded-xl overflow-hidden bg-slate-950 aspect-video border border-indigo-800 shadow-inner flex items-center justify-center">
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-full object-cover transform -scale-x-100"
-              />
-              {cameraStatus !== 'active' && (
-                <div className="absolute inset-0 bg-slate-950/85 text-white text-[10px] flex flex-col items-center justify-center p-2 text-center space-y-1">
-                  <VideoOff className="w-6 h-6 text-amber-400" />
-                  <span className="font-semibold">Webcam Not Active</span>
-                  <span className="text-[9px] text-[#a5a3c9]">Permissions required for proctoring</span>
-                </div>
-              )}
-            </div>
-          </div>
-
           {/* Proctoring Audit Box */}
           <div className="glass-card p-4 space-y-2 border border-amber-500/15">
             <span className="text-xs font-bold text-amber-400 flex items-center justify-between">
               <span className="flex items-center gap-1.5"><Lock className="w-3.5 h-3.5" /> Proctoring Audit</span>
               <span className="text-[10px] text-teal-400 font-mono">Active</span>
             </span>
-            <div className="grid grid-cols-3 gap-1.5 text-[10px] pt-1 font-mono">
-              <div className="p-2 rounded bg-indigo-950 border border-indigo-800 text-center">
-                <span className="text-[#a5a3c9] block text-[9px] uppercase">Tab Switches</span>
-                <span className={tabSwitchCount > 0 ? 'text-amber-400 font-bold' : 'text-slate-200'}>{tabSwitchCount} / 2</span>
-              </div>
-              <div className="p-2 rounded bg-indigo-950 border border-indigo-800 text-center">
-                <span className="text-[#a5a3c9] block text-[9px] uppercase">FS Exits</span>
-                <span className={fullscreenExits > 0 ? 'text-amber-400 font-bold' : 'text-slate-200'}>{fullscreenExits} / 3</span>
-              </div>
-              <div className="p-2 rounded bg-indigo-950 border border-indigo-800 text-center">
-                <span className="text-[#a5a3c9] block text-[9px] uppercase">Camera</span>
-                <span className={cameraViolationCount > 0 ? 'text-rose-400 font-bold' : 'text-slate-200'}>{cameraViolationCount} / 2</span>
+            <div className="text-[10px] pt-1 font-mono">
+              <div className="p-2.5 rounded-xl bg-indigo-950 border border-indigo-800 text-center flex items-center justify-between">
+                <span className="text-[#a5a3c9] text-[10px] uppercase font-bold">Tab Switches</span>
+                <span className={tabSwitchCount > 0 ? 'text-amber-400 font-extrabold text-xs' : 'text-slate-200 text-xs font-bold'}>
+                  {tabSwitchCount} / 2
+                </span>
               </div>
             </div>
           </div>
@@ -1019,31 +788,6 @@ export default function TakeExam() {
         </div>
 
       </div>
-
-      {/* Full-Screen Exit Warning Modal */}
-      {showFullscreenModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
-          <div className="bg-[#171545] max-w-md w-full p-6 text-center space-y-6 border border-amber-500/20 rounded-2xl shadow-2xl text-white">
-            <div className="w-14 h-14 rounded-2xl bg-rose-500/10 text-rose-400 flex items-center justify-center mx-auto animate-bounce border border-rose-500/20">
-              <AlertTriangle className="w-8 h-8" />
-            </div>
-            <div>
-              <h3 className="text-xl font-extrabold text-white">Full-Screen Mode Exited!</h3>
-              <p className="text-[#a5a3c9] text-xs mt-2">
-                Exam policy requires full-screen mode. Security incident logged. Exit Count: <strong className="text-rose-400">{fullscreenExits} / 3</strong>.
-              </p>
-              <p className="text-[#a5a3c9] text-[11px] mt-1">Exiting full-screen 3 times will force automatic submission.</p>
-            </div>
-
-            <button
-              onClick={requestFullScreen}
-              className="w-full py-3 rounded-xl bg-amber-500 text-indigo-950 font-bold text-xs shadow-md hover:scale-[1.01] transition-transform cursor-pointer"
-            >
-              Return to Full-Screen Mode Now 🔒
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Submit Confirmation Modal */}
       {showSubmitConfirm && (
@@ -1110,13 +854,11 @@ export default function TakeExam() {
                   <strong className="font-bold text-sm block text-rose-300">Exam Auto-Submitted!</strong>
                   <p className="mt-0.5">
                     {autoSubmitNoticeMessage || (
-                      resultData.autoSubmitReason === 'camera_violation_limit_exceeded'
-                        ? 'Your test has been automatically submitted due to repeated camera proctoring violations.'
-                        : resultData.autoSubmitReason === 'tab_switch_limit_exceeded'
+                      resultData.autoSubmitReason === 'tab_switch_limit_exceeded'
                         ? 'Your test has been automatically submitted due to repeated tab-switching violations.'
-                        : resultData.autoSubmitReason === 'fullscreen_exit_limit_exceeded'
-                        ? 'Your test has been automatically submitted due to 3 full-screen exit violations.'
-                        : 'Your test has been automatically submitted due to security policy enforcement.'
+                        : resultData.autoSubmitReason === 'time_expired'
+                        ? 'Your test duration has ended.'
+                        : 'Your test has been automatically submitted due to policy enforcement.'
                     )}
                   </p>
                 </div>
@@ -1151,29 +893,6 @@ export default function TakeExam() {
               Return to Student Dashboard
             </button>
 
-          </div>
-        </div>
-      )}
-
-      {/* Camera Access Permission Denied Modal Backdrop */}
-      {cameraDeniedModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
-          <div className="bg-[#171545] max-w-md w-full p-8 text-center space-y-6 border border-amber-500/20 rounded-2xl shadow-2xl text-white">
-            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/20">
-              <VideoOff className="w-9 h-9" />
-            </div>
-            <div>
-              <h3 className="text-xl font-extrabold text-white">Webcam Access Required</h3>
-              <p className="text-[#a5a3c9] text-xs mt-3 leading-relaxed">
-                Camera access is required for this proctored exam. Please allow camera permissions in your browser and refresh the page.
-              </p>
-            </div>
-            <button
-              onClick={() => window.location.reload()}
-              className="w-full py-3 rounded-xl bg-amber-500 text-indigo-950 font-bold text-xs shadow-md hover:scale-[1.01] transition-transform cursor-pointer"
-            >
-              Refresh Page & Grant Permissions 🔄
-            </button>
           </div>
         </div>
       )}
