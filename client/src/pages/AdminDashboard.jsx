@@ -224,17 +224,187 @@ export default function AdminDashboard() {
     }
   }, [token, proctorSearch, proctorReasonFilter]);
 
+  // API Call: Fetch Platform Usage & Question Quality Audit
+  const fetchPlatformUsageAndQuality = useCallback(async () => {
+    try {
+      const [usageRes, qualityRes] = await Promise.all([
+        safeFetchJson('/api/admin/platform-usage', { headers: { Authorization: `Bearer ${token}` } }),
+        safeFetchJson('/api/admin/question-quality', { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (usageRes.ok && usageRes.data?.success) setPlatformUsage(usageRes.data.data);
+      if (qualityRes.ok && qualityRes.data?.success) setQualityAuditData(qualityRes.data.data);
+    } catch (err) {
+      console.error('[AdminDashboard] Fetch platform usage error:', err);
+    }
+  }, [token]);
+
+  // API Call: Fetch System Logs
+  const fetchLogs = useCallback(async () => {
+    setLogsLoading(true);
+    try {
+      const { ok, data } = await safeFetchJson(`/api/admin/logs?type=${logTypeFilter}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (ok && data?.success) setSystemLogs(data.data || []);
+    } catch (err) {
+      console.error('[AdminDashboard] Fetch logs error:', err);
+    } finally {
+      setLogsLoading(false);
+    }
+  }, [token, logTypeFilter]);
+
+  // API Call: Fetch Question Reports
+  const fetchReports = useCallback(async () => {
+    setReportsLoading(true);
+    try {
+      const { ok, data } = await safeFetchJson(`/api/admin/reports?status=${reportStatusFilter}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (ok && data?.success) setQuestionReports(data.data || []);
+    } catch (err) {
+      console.error('[AdminDashboard] Fetch reports error:', err);
+    } finally {
+      setReportsLoading(false);
+    }
+  }, [token, reportStatusFilter]);
+
+  // API Call: Fetch Broadcast History
+  const fetchBroadcastHistory = useCallback(async () => {
+    setBroadcastLoading(true);
+    try {
+      const { ok, data } = await safeFetchJson('/api/admin/broadcasts', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (ok && data?.success) setBroadcastHistory(data.data || []);
+    } catch (err) {
+      console.error('[AdminDashboard] Fetch broadcast history error:', err);
+    } finally {
+      setBroadcastLoading(false);
+    }
+  }, [token]);
+
+  // API Call: Fetch Advanced Analytics
+  const fetchAdvancedAnalytics = useCallback(async () => {
+    setAnalyticsLoading(true);
+    try {
+      const [subjRes, teachRes, peakRes] = await Promise.all([
+        safeFetchJson('/api/admin/analytics/subject-performance', { headers: { Authorization: `Bearer ${token}` } }),
+        safeFetchJson('/api/admin/analytics/teacher-leaderboard', { headers: { Authorization: `Bearer ${token}` } }),
+        safeFetchJson('/api/admin/analytics/peak-usage', { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (subjRes.ok && subjRes.data?.success) setSubjectPerformance(subjRes.data.data || []);
+      if (teachRes.ok && teachRes.data?.success) setTeacherLeaderboard(teachRes.data.data || []);
+      if (peakRes.ok && peakRes.data?.success) setPeakUsageData(peakRes.data.data || []);
+    } catch (err) {
+      console.error('[AdminDashboard] Fetch analytics error:', err);
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }, [token]);
+
   // Tab change effect triggers
   useEffect(() => {
     fetchOverview();
-  }, [fetchOverview]);
+    fetchPlatformUsageAndQuality();
+  }, [fetchOverview, fetchPlatformUsageAndQuality]);
 
   useEffect(() => {
     if (activeTab === 'users') fetchUsers();
     if (activeTab === 'approvals') fetchTeacherApprovals();
     if (activeTab === 'courses') fetchAdminCourses();
-    if (activeTab === 'proctoring') fetchProctorAudit();
-  }, [activeTab, fetchUsers, fetchTeacherApprovals, fetchAdminCourses, fetchProctorAudit]);
+    if (activeTab === 'reports') fetchReports();
+    if (activeTab === 'broadcast') fetchBroadcastHistory();
+    if (activeTab === 'logs') {
+      fetchProctorAudit();
+      fetchLogs();
+    }
+    if (activeTab === 'analytics') fetchAdvancedAnalytics();
+  }, [activeTab, fetchUsers, fetchTeacherApprovals, fetchAdminCourses, fetchReports, fetchBroadcastHistory, fetchProctorAudit, fetchLogs, fetchAdvancedAnalytics]);
+
+  // Handle Force Logout
+  const handleForceLogoutUser = async (userId, userName) => {
+    if (!window.confirm(`Revoke all active login sessions for ${userName || 'this user'}?`)) return;
+    try {
+      const { ok, data } = await safeFetchJson(`/api/admin/users/${userId}/force-logout`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (ok && data?.success) {
+        alert(data.message);
+        fetchUsers();
+      } else {
+        alert(data?.message || 'Failed to force logout user');
+      }
+    } catch (err) {
+      alert('Error in force logout: ' + err.message);
+    }
+  };
+
+  // Handle Report Status Update
+  const handleUpdateReportStatus = async (reportId, newStatus) => {
+    try {
+      const { ok, data } = await safeFetchJson(`/api/admin/reports/${reportId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (ok && data?.success) {
+        setQuestionReports(prev => prev.map(r => r._id === reportId ? { ...r, status: newStatus } : r));
+      } else {
+        alert(data?.message || 'Failed to update report status');
+      }
+    } catch (err) {
+      alert('Error updating report: ' + err.message);
+    }
+  };
+
+  // Handle Send Broadcast
+  const handleSendBroadcast = async (e) => {
+    e.preventDefault();
+    if (!broadcastMessage.trim()) return;
+
+    if (!window.confirm(`Dispatch email announcement to ${broadcastAudience.toUpperCase()} users?`)) return;
+
+    setBroadcastSending(true);
+    try {
+      const { ok, data } = await safeFetchJson('/api/admin/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ message: broadcastMessage, audience: broadcastAudience }),
+      });
+      if (ok && data?.success) {
+        alert(data.message);
+        setBroadcastMessage('');
+        fetchBroadcastHistory();
+      } else {
+        alert(data?.message || 'Failed to send broadcast announcement');
+      }
+    } catch (err) {
+      alert('Error sending broadcast: ' + err.message);
+    } finally {
+      setBroadcastSending(false);
+    }
+  };
+
+  // Handle Export CSV
+  const handleExportCsv = async (exportType) => {
+    try {
+      const response = await fetch(`/api/admin/export/${exportType}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error('Export failed with status ' + response.status);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `export_${exportType}_${Date.now()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (err) {
+      alert('Failed to export CSV: ' + err.message);
+    }
+  };
 
   // --- USER MANAGEMENT HANDLERS ---
   const handleToggleBlockUser = async (userId, currentBlockedStatus) => {
@@ -648,7 +818,7 @@ export default function AdminDashboard() {
           }`}
         >
           <UserCheck className="w-4 h-4" />
-          Teacher Approvals
+          Faculty Approvals
         </button>
 
         <button
@@ -660,19 +830,55 @@ export default function AdminDashboard() {
           }`}
         >
           <Layers className="w-4 h-4" />
-          Course & Exam Moderation
+          Course Moderation
         </button>
 
         <button
-          onClick={() => setActiveTab('proctoring')}
+          onClick={() => setActiveTab('reports')}
           className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
-            activeTab === 'proctoring'
+            activeTab === 'reports'
               ? 'bg-amber-500 text-indigo-950 shadow-md shadow-amber-500/20 font-bold'
               : 'text-[#a5a3c9] hover:text-white hover:bg-indigo-900/40'
           }`}
         >
-          <Shield className="w-4 h-4" />
-          Proctoring Audit
+          <Flag className="w-4 h-4" />
+          Question Reports
+        </button>
+
+        <button
+          onClick={() => setActiveTab('broadcast')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === 'broadcast'
+              ? 'bg-amber-500 text-indigo-950 shadow-md shadow-amber-500/20 font-bold'
+              : 'text-[#a5a3c9] hover:text-white hover:bg-indigo-900/40'
+          }`}
+        >
+          <Megaphone className="w-4 h-4" />
+          Broadcast
+        </button>
+
+        <button
+          onClick={() => setActiveTab('logs')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === 'logs'
+              ? 'bg-amber-500 text-indigo-950 shadow-md shadow-amber-500/20 font-bold'
+              : 'text-[#a5a3c9] hover:text-white hover:bg-indigo-900/40'
+          }`}
+        >
+          <Server className="w-4 h-4" />
+          System Logs & Audit
+        </button>
+
+        <button
+          onClick={() => setActiveTab('analytics')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === 'analytics'
+              ? 'bg-amber-500 text-indigo-950 shadow-md shadow-amber-500/20 font-bold'
+              : 'text-[#a5a3c9] hover:text-white hover:bg-indigo-900/40'
+          }`}
+        >
+          <TrendingUp className="w-4 h-4" />
+          Advanced Analytics
         </button>
       </div>
 
@@ -795,6 +1001,128 @@ export default function AdminDashboard() {
 
           </div>
 
+          {/* Platform Health, Resource Usage & Question Quality Audit */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            
+            {/* Platform Usage & Resource Monitoring Widget */}
+            <div className="glass-card p-6 border border-amber-500/15 space-y-4">
+              <div className="border-b border-indigo-900/40 pb-3 flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Server className="w-5 h-5 text-amber-400" />
+                    Platform Resource & Usage Monitoring
+                  </h3>
+                  <p className="text-xs text-[#a5a3c9] mt-0.5">Database storage, AI PDF parsing, and email dispatch metrics</p>
+                </div>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-teal-500/10 text-teal-300 border border-teal-500/20 uppercase">
+                  Healthy
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 pt-1">
+                <div className="p-3.5 rounded-xl bg-indigo-950/60 border border-indigo-900/40 space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs text-[#a5a3c9]">
+                    <HardDrive className="w-3.5 h-3.5 text-amber-400" />
+                    <span>MongoDB DB</span>
+                  </div>
+                  <div className="text-lg font-mono font-bold text-white">
+                    {platformUsage?.mongoDbEstimate?.sizeMb || '0.5'} MB
+                  </div>
+                  <div className="text-[10px] text-[#a5a3c9]">
+                    {platformUsage?.mongoDbEstimate?.totalDocs || 0} Total Docs
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-indigo-950/60 border border-indigo-900/40 space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs text-[#a5a3c9]">
+                    <Activity className="w-3.5 h-3.5 text-teal-400" />
+                    <span>AI PDF Calls</span>
+                  </div>
+                  <div className="text-lg font-mono font-bold text-teal-300">
+                    {platformUsage?.pdfParseCount || 0}
+                  </div>
+                  <div className="text-[10px] text-[#a5a3c9]">
+                    Claude Extract Calls
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-indigo-950/60 border border-indigo-900/40 space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs text-[#a5a3c9]">
+                    <Send className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Emails Sent</span>
+                  </div>
+                  <div className="text-lg font-mono font-bold text-amber-400">
+                    {platformUsage?.emailSentCount || 0}
+                  </div>
+                  <div className="text-[10px] text-[#a5a3c9]">
+                    Resend Dispatched
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Question Quality & Health Audit Widget */}
+            <div className="glass-card p-6 border border-amber-500/15 space-y-4">
+              <div className="border-b border-indigo-900/40 pb-3 flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <ShieldCheck className="w-5 h-5 text-teal-400" />
+                    Question Bank Integrity & Quality Audit
+                  </h3>
+                  <p className="text-xs text-[#a5a3c9] mt-0.5">Detect missing answer keys and orphaned question items</p>
+                </div>
+                <Link
+                  to="/teacher/questions"
+                  className="text-xs text-amber-400 hover:underline flex items-center gap-1 font-semibold"
+                >
+                  Manage Bank <ArrowUpRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 pt-1">
+                <div className="p-3.5 rounded-xl bg-indigo-950/60 border border-indigo-900/40 space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs text-[#a5a3c9]">
+                    <BookOpen className="w-3.5 h-3.5 text-teal-400" />
+                    <span>Total Bank</span>
+                  </div>
+                  <div className="text-lg font-mono font-bold text-white">
+                    {qualityAuditData?.totalQuestions || 0}
+                  </div>
+                  <div className="text-[10px] text-[#a5a3c9]">
+                    Questions Stored
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-indigo-950/60 border border-indigo-900/40 space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs text-[#a5a3c9]">
+                    <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Missing Key</span>
+                  </div>
+                  <div className={`text-lg font-mono font-bold ${qualityAuditData?.missingAnswerCount > 0 ? 'text-rose-400' : 'text-teal-400'}`}>
+                    {qualityAuditData?.missingAnswerCount || 0}
+                  </div>
+                  <div className="text-[10px] text-[#a5a3c9]">
+                    Action Required
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-indigo-950/60 border border-indigo-900/40 space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs text-[#a5a3c9]">
+                    <Layers className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Unused Items</span>
+                  </div>
+                  <div className="text-lg font-mono font-bold text-amber-400">
+                    {qualityAuditData?.unusedCount || 0}
+                  </div>
+                  <div className="text-[10px] text-[#a5a3c9]">
+                    Not in Exams
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
           {/* Platform Recent Activity Feed */}
           <div className="glass-card p-6 border border-amber-500/15 space-y-4">
             <div className="border-b border-indigo-900/40 pb-3 flex items-center justify-between">
@@ -892,6 +1220,14 @@ export default function AdminDashboard() {
                   </button>
                 </div>
               )}
+
+              <button
+                onClick={() => handleExportCsv('users')}
+                className="px-3.5 py-2 rounded-xl bg-teal-500/10 border border-teal-500/20 text-teal-300 hover:bg-teal-500 hover:text-indigo-950 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                Export Users CSV
+              </button>
 
               <button
                 onClick={downloadSampleStudentCsv}
@@ -1007,6 +1343,14 @@ export default function AdminDashboard() {
                                   }`}
                                 >
                                   {u.isBlocked ? 'Unblock' : 'Block'}
+                                </button>
+
+                                <button
+                                  onClick={() => handleForceLogoutUser(u._id, u.name)}
+                                  className="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500 hover:text-indigo-950 text-xs font-semibold transition-all cursor-pointer"
+                                  title="Force Logout (Revoke Tokens)"
+                                >
+                                  <LogOut className="w-3.5 h-3.5 inline" />
                                 </button>
 
                                 <button
@@ -1170,6 +1514,14 @@ export default function AdminDashboard() {
                   Cards View
                 </button>
               </div>
+              {/* Export Courses CSV */}
+              <button
+                onClick={() => handleExportCsv('courses')}
+                className="px-3.5 py-2 rounded-xl bg-teal-500/10 border border-teal-500/20 text-teal-300 hover:bg-teal-500 hover:text-indigo-950 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                Export Courses CSV
+              </button>
             </div>
 
             <span className="text-xs font-mono text-[#a5a3c9]">
@@ -1366,109 +1718,533 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* ==================== TAB 5: PROCTORING SECURITY AUDIT ==================== */}
-      {activeTab === 'proctoring' && (
+      {/* ==================== TAB 5: QUESTION MODERATION REPORTS ==================== */}
+      {activeTab === 'reports' && (
         <div className="space-y-6">
           <div className="glass-card p-4 border border-amber-500/15 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 text-[#a5a3c9] absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Search student or exam title..."
-                  value={proctorSearch}
-                  onChange={(e) => setProctorSearch(e.target.value)}
-                  className="pl-9 pr-3 py-2 rounded-xl bg-indigo-950/80 border border-indigo-800/60 text-white text-xs w-64 focus:border-amber-400 focus:outline-none placeholder:text-[#a5a3c9]"
-                />
-              </div>
-
+              <span className="text-xs font-bold text-[#f4f4f8]">Report Status Filter:</span>
               <select
-                value={proctorReasonFilter}
-                onChange={(e) => setProctorReasonFilter(e.target.value)}
-                className="px-3 py-2 rounded-xl bg-indigo-950/80 border border-indigo-800/60 text-white text-xs font-semibold cursor-pointer"
+                value={reportStatusFilter}
+                onChange={(e) => setReportStatusFilter(e.target.value)}
+                className="px-3 py-2 rounded-xl bg-indigo-950/80 border border-indigo-800/60 text-white text-xs font-semibold cursor-pointer focus:border-amber-400 focus:outline-none"
               >
-                <option value="All">Reason: All Flagged</option>
-                <option value="tab_switch_exceeded">Tab Switch Limit Exceeded</option>
-                <option value="fullscreen_exit_exceeded">Fullscreen Exit Exceeded</option>
-                <option value="timer_expired">Timer Expired</option>
+                <option value="pending">Pending Review</option>
+                <option value="resolved">Resolved</option>
+                <option value="dismissed">Dismissed</option>
+                <option value="all">All Statuses</option>
               </select>
             </div>
 
-            <span className="text-xs font-mono text-[#a5a3c9]">{proctorAttempts.length} Flagged Incident(s)</span>
+            <span className="text-xs font-mono text-[#a5a3c9]">
+              {questionReports.length} Question Report(s)
+            </span>
           </div>
 
-          {proctorLoading ? (
-            <BrandedLoader message="Loading security audit log..." />
-          ) : proctorAttempts.length === 0 ? (
+          {reportsLoading ? (
+            <BrandedLoader message="Loading question moderation reports..." />
+          ) : questionReports.length === 0 ? (
             <div className="py-12 text-center text-xs text-[#a5a3c9] glass-card border border-amber-500/15">
-              No security violations or auto-submitted attempts recorded.
+              No question reports found matching status filter "{reportStatusFilter}".
             </div>
           ) : (
-            <div className="glass-card rounded-2xl border border-amber-500/15 overflow-hidden">
-              <table className="w-full text-left text-xs text-slate-200">
-                <thead className="bg-indigo-950/90 text-[#a5a3c9] uppercase text-[10px] font-mono border-b border-indigo-900/60">
-                  <tr>
-                    <th className="p-4">Candidate Student</th>
-                    <th className="p-4">Exam Paper</th>
-                    <th className="p-4">Tab Switches</th>
-                    <th className="p-4">Fullscreen Exits</th>
-                    <th className="p-4">Auto-Submitted</th>
-                    <th className="p-4">Date & Time</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-indigo-900/40">
-                  {proctorAttempts.map((a) => (
-                    <tr key={a._id} className="hover:bg-indigo-900/30 transition-colors">
-                      <td className="p-4">
-                        <div className="font-bold text-white">{a.student?.name || 'Candidate'}</div>
-                        <span className="text-[11px] font-mono text-[#a5a3c9]">{a.student?.email}</span>
-                      </td>
-                      <td className="p-4">
-                        <div className="font-semibold text-white">{a.exam?.title || 'Exam'}</div>
-                        <span className="text-[10px] font-mono text-amber-400 font-bold uppercase">{a.exam?.code}</span>
-                      </td>
-                      <td className="p-4">
-                        <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold border ${
-                          a.tabSwitchCount >= 2
-                            ? 'bg-rose-500/10 text-rose-300 border-rose-500/20'
-                            : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                        }`}>
-                          {a.tabSwitchCount || 0} Switch(es)
+            <div className="space-y-4">
+              {questionReports.map((r) => (
+                <div key={r._id} className="glass-card p-5 border border-amber-500/15 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-indigo-900/40 pb-3">
+                    <div className="flex items-center gap-2">
+                      <Flag className="w-4 h-4 text-amber-400" />
+                      <span className="text-xs font-bold text-white uppercase font-mono">
+                        Reason: {r.reason}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <span className={`px-2.5 py-0.5 rounded text-[10px] uppercase font-bold border ${
+                        r.status === 'resolved'
+                          ? 'bg-teal-500/10 text-teal-300 border-teal-500/20'
+                          : r.status === 'dismissed'
+                          ? 'bg-slate-500/10 text-slate-300 border-slate-500/20'
+                          : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                      }`}>
+                        {r.status}
+                      </span>
+                      <span className="text-[11px] font-mono text-[#a5a3c9]">
+                        {new Date(r.createdAt).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                    <div className="p-3.5 rounded-xl bg-indigo-950/60 border border-indigo-900/40 space-y-1">
+                      <span className="text-[10px] font-mono uppercase text-[#a5a3c9]">Question Snippet</span>
+                      <p className="text-white font-medium line-clamp-3">
+                        {r.question?.text || 'Question Text Unavailable'}
+                      </p>
+                      {r.question?.subject?.name && (
+                        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 mt-1">
+                          {r.question.subject.name}
                         </span>
-                      </td>
-                      <td className="p-4 font-mono">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-950 border border-indigo-800 text-slate-200">
-                          {a.fullscreenExitCount || 0} Exit(s)
-                        </span>
-                        <span className="ml-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 border border-rose-500/20 text-rose-300">
-                          {a.cameraViolationCount || 0} Cam
-                        </span>
-                      </td>
-                      <td className="p-4">
-                        {a.autoSubmitted ? (
-                          <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-300 border border-rose-500/20 uppercase">
-                            Yes ({
-                              a.autoSubmitReason === 'camera_violation_limit_exceeded'
-                                ? 'Camera Violation'
-                                : a.autoSubmitReason === 'tab_switch_limit_exceeded'
-                                ? 'Tab Switch'
-                                : a.autoSubmitReason === 'fullscreen_exit_limit_exceeded'
-                                ? 'FS Exit'
-                                : 'Security Violation'
-                            })
-                          </span>
-                        ) : (
-                          <span className="text-[#a5a3c9] text-[11px]">No</span>
-                        )}
-                      </td>
-                      <td className="p-4 text-[#a5a3c9] font-mono">
-                        {new Date(a.updatedAt || a.createdAt).toLocaleString()}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      )}
+                    </div>
+
+                    <div className="p-3.5 rounded-xl bg-indigo-950/60 border border-indigo-900/40 space-y-1">
+                      <span className="text-[10px] font-mono uppercase text-[#a5a3c9]">Reporter & Details</span>
+                      <div className="text-white font-bold">{r.reportedBy?.name || 'Student Candidate'}</div>
+                      <div className="text-[#a5a3c9] font-mono text-[11px]">{r.reportedBy?.email}</div>
+                      {r.comment && (
+                        <p className="text-amber-300 italic pt-1 text-[11px]">"{r.comment}"</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="pt-2 flex flex-wrap items-center justify-between gap-3">
+                    <Link
+                      to="/teacher/questions"
+                      className="px-3.5 py-1.5 rounded-xl bg-indigo-950 border border-indigo-800 text-amber-400 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-all"
+                    >
+                      <BookOpen className="w-3.5 h-3.5" /> Jump to Question Bank
+                    </Link>
+
+                    <div className="flex items-center gap-2">
+                      {r.status !== 'resolved' && (
+                        <button
+                          onClick={() => handleUpdateReportStatus(r._id, 'resolved')}
+                          className="px-3 py-1.5 rounded-xl bg-teal-500 hover:bg-teal-400 text-indigo-950 font-bold text-xs shadow-sm transition-all cursor-pointer flex items-center gap-1"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Mark Resolved
+                        </button>
+                      )}
+
+                      {r.status !== 'dismissed' && (
+                        <button
+                          onClick={() => handleUpdateReportStatus(r._id, 'dismissed')}
+                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all cursor-pointer flex items-center gap-1"
+                        >
+                          <XCircle className="w-3.5 h-3.5" /> Dismiss
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ==================== TAB 6: BROADCAST ANNOUNCEMENTS ==================== */}
+      {activeTab === 'broadcast' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Dispatch Announcement Form */}
+          <div className="lg:col-span-1 glass-card p-6 border border-amber-500/15 space-y-4">
+            <div className="border-b border-indigo-900/40 pb-3">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Megaphone className="w-5 h-5 text-amber-400" />
+                Dispatch Email Broadcast
+              </h3>
+              <p className="text-xs text-[#a5a3c9] mt-0.5">Send batch platform notifications to students and educators</p>
+            </div>
+
+            <form onSubmit={handleSendBroadcast} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-[#a5a3c9] mb-1">Target Audience</label>
+                <select
+                  value={broadcastAudience}
+                  onChange={(e) => setBroadcastAudience(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-indigo-950 border border-indigo-800 text-xs text-white focus:border-amber-400 focus:outline-none cursor-pointer font-semibold"
+                >
+                  <option value="all">All Registered Users (Students & Faculty)</option>
+                  <option value="student">Students Only</option>
+                  <option value="teacher">Teachers / Faculty Only</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#a5a3c9] mb-1">Announcement Message Body</label>
+                <textarea
+                  rows={6}
+                  required
+                  placeholder="Type official system announcement or notification message..."
+                  value={broadcastMessage}
+                  onChange={(e) => setBroadcastMessage(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-indigo-950 border border-indigo-800 text-xs text-white focus:border-amber-400 focus:outline-none placeholder:text-[#a5a3c9]"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={broadcastSending || !broadcastMessage.trim()}
+                className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-indigo-950 font-bold text-xs shadow-md shadow-amber-500/20 transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {broadcastSending ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" /> Dispatching Emails...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" /> Dispatch Announcement
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+
+          {/* Broadcast History List */}
+          <div className="lg:col-span-2 glass-card p-6 border border-amber-500/15 space-y-4">
+            <div className="border-b border-indigo-900/40 pb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-teal-400" />
+                  Sent Announcement History
+                </h3>
+                <p className="text-xs text-[#a5a3c9] mt-0.5">Audit log of previously dispatched broadcast notifications</p>
+              </div>
+              <span className="text-xs font-mono text-[#a5a3c9]">{broadcastHistory.length} Dispatched</span>
+            </div>
+
+            {broadcastLoading ? (
+              <BrandedLoader message="Loading broadcast history..." />
+            ) : broadcastHistory.length === 0 ? (
+              <div className="py-12 text-center text-xs text-[#a5a3c9]">
+                No broadcast announcements sent yet.
+              </div>
+            ) : (
+              <div className="divide-y divide-indigo-900/40 max-h-[480px] overflow-y-auto pr-1">
+                {broadcastHistory.map((b) => (
+                  <div key={b._id} className="py-4 space-y-2 hover:bg-indigo-900/20 px-3 rounded-xl transition-colors">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="px-2.5 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                        Audience: {b.audience}
+                      </span>
+                      <span className="text-xs font-mono text-[#a5a3c9]">
+                        {new Date(b.createdAt).toLocaleString()}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-slate-200 font-medium whitespace-pre-wrap">{b.message}</p>
+
+                    <div className="flex items-center justify-between text-[11px] text-[#a5a3c9] font-mono pt-1">
+                      <span>Sent to {b.sentCount} Recipient(s)</span>
+                      <span>By: {b.sentBy?.name || 'Admin'}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ==================== TAB 7: SYSTEM LOGS & PROCTORING AUDIT ==================== */}
+      {activeTab === 'logs' && (
+        <div className="space-y-8">
+          
+          {/* Section 1: System Authentication & Error Logs */}
+          <div className="space-y-4">
+            <div className="glass-card p-4 border border-amber-500/15 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <Server className="w-5 h-5 text-amber-400" />
+                <h3 className="text-sm font-bold text-white">Platform System & Authentication Audit Trail</h3>
+                
+                <select
+                  value={logTypeFilter}
+                  onChange={(e) => setLogTypeFilter(e.target.value)}
+                  className="px-3 py-1.5 rounded-xl bg-indigo-950/80 border border-indigo-800/60 text-white text-xs font-semibold cursor-pointer focus:border-amber-400 focus:outline-none"
+                >
+                  <option value="all">Log Type: All Events</option>
+                  <option value="failed-login">Failed Login Attempts</option>
+                  <option value="success-login">Successful Logins</option>
+                </select>
+              </div>
+
+              <button
+                onClick={fetchLogs}
+                className="px-3 py-1.5 rounded-xl bg-indigo-950 border border-indigo-800 text-amber-400 hover:text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Refresh Logs
+              </button>
+            </div>
+
+            {logsLoading ? (
+              <BrandedLoader message="Fetching system logs..." />
+            ) : systemLogs.length === 0 ? (
+              <div className="py-12 text-center text-xs text-[#a5a3c9] glass-card border border-amber-500/15">
+                No system logs recorded matching filter "{logTypeFilter}".
+              </div>
+            ) : (
+              <div className="glass-card rounded-2xl border border-amber-500/15 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-200">
+                    <thead className="bg-indigo-950/90 text-[#a5a3c9] uppercase text-[10px] font-mono border-b border-indigo-900/60">
+                      <tr>
+                        <th className="p-4">Timestamp</th>
+                        <th className="p-4">Account Email</th>
+                        <th className="p-4">Role</th>
+                        <th className="p-4">Status</th>
+                        <th className="p-4">IP Address</th>
+                        <th className="p-4">Details / Failure Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-indigo-900/40">
+                      {systemLogs.map((log) => (
+                        <tr key={log._id} className="hover:bg-indigo-900/30 transition-colors">
+                          <td className="p-4 font-mono text-[#a5a3c9]">
+                            {new Date(log.timestamp || log.createdAt).toLocaleString()}
+                          </td>
+                          <td className="p-4 font-bold text-white">{log.email}</td>
+                          <td className="p-4 font-mono text-[#a5a3c9] uppercase text-[11px]">
+                            {log.role || '—'}
+                          </td>
+                          <td className="p-4">
+                            <span className={`px-2.5 py-0.5 rounded text-[10px] uppercase font-bold border ${
+                              log.success
+                                ? 'bg-teal-500/10 text-teal-300 border-teal-500/20'
+                                : 'bg-rose-500/10 text-rose-300 border-rose-500/20'
+                            }`}>
+                              {log.success ? 'Success' : 'Failed'}
+                            </span>
+                          </td>
+                          <td className="p-4 font-mono text-[#a5a3c9]">
+                            {log.ipAddress || '127.0.0.1'}
+                          </td>
+                          <td className="p-4 text-[#a5a3c9]">
+                            {log.reason || (log.success ? 'Authenticated successfully' : 'Security event')}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Section 2: Exam Proctoring Audit */}
+          <div className="space-y-4 pt-4 border-t border-indigo-900/60">
+            <div className="glass-card p-4 border border-amber-500/15 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <Shield className="w-5 h-5 text-teal-400" />
+                <h3 className="text-sm font-bold text-white">Live Exam Proctoring Incident Log</h3>
+
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-[#a5a3c9] absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search student or exam title..."
+                    value={proctorSearch}
+                    onChange={(e) => setProctorSearch(e.target.value)}
+                    className="pl-9 pr-3 py-1.5 rounded-xl bg-indigo-950/80 border border-indigo-800/60 text-white text-xs w-56 focus:border-amber-400 focus:outline-none placeholder:text-[#a5a3c9]"
+                  />
+                </div>
+
+                <select
+                  value={proctorReasonFilter}
+                  onChange={(e) => setProctorReasonFilter(e.target.value)}
+                  className="px-3 py-1.5 rounded-xl bg-indigo-950/80 border border-indigo-800/60 text-white text-xs font-semibold cursor-pointer"
+                >
+                  <option value="All">Reason: All Flagged</option>
+                  <option value="tab_switch_exceeded">Tab Switch Limit Exceeded</option>
+                  <option value="fullscreen_exit_exceeded">Fullscreen Exit Exceeded</option>
+                  <option value="timer_expired">Timer Expired</option>
+                </select>
+              </div>
+
+              <span className="text-xs font-mono text-[#a5a3c9]">{proctorAttempts.length} Flagged Incident(s)</span>
+            </div>
+
+            {proctorLoading ? (
+              <BrandedLoader message="Loading security audit log..." />
+            ) : proctorAttempts.length === 0 ? (
+              <div className="py-12 text-center text-xs text-[#a5a3c9] glass-card border border-amber-500/15">
+                No security violations or auto-submitted attempts recorded.
+              </div>
+            ) : (
+              <div className="glass-card rounded-2xl border border-amber-500/15 overflow-hidden">
+                <table className="w-full text-left text-xs text-slate-200">
+                  <thead className="bg-indigo-950/90 text-[#a5a3c9] uppercase text-[10px] font-mono border-b border-indigo-900/60">
+                    <tr>
+                      <th className="p-4">Candidate Student</th>
+                      <th className="p-4">Exam Paper</th>
+                      <th className="p-4">Tab Switches</th>
+                      <th className="p-4">Fullscreen Exits</th>
+                      <th className="p-4">Auto-Submitted</th>
+                      <th className="p-4">Date & Time</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-indigo-900/40">
+                    {proctorAttempts.map((a) => (
+                      <tr key={a._id} className="hover:bg-indigo-900/30 transition-colors">
+                        <td className="p-4">
+                          <div className="font-bold text-white">{a.student?.name || 'Candidate'}</div>
+                          <span className="text-[11px] font-mono text-[#a5a3c9]">{a.student?.email}</span>
+                        </td>
+                        <td className="p-4">
+                          <div className="font-semibold text-white">{a.exam?.title || 'Exam'}</div>
+                          <span className="text-[10px] font-mono text-amber-400 font-bold uppercase">{a.exam?.code}</span>
+                        </td>
+                        <td className="p-4">
+                          <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold border ${
+                            a.tabSwitchCount >= 2
+                              ? 'bg-rose-500/10 text-rose-300 border-rose-500/20'
+                              : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                          }`}>
+                            {a.tabSwitchCount || 0} Switch(es)
+                          </span>
+                        </td>
+                        <td className="p-4 font-mono">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-950 border border-indigo-800 text-slate-200">
+                            {a.fullscreenExitCount || 0} Exit(s)
+                          </span>
+                          <span className="ml-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 border border-rose-500/20 text-rose-300">
+                            {a.cameraViolationCount || 0} Cam
+                          </span>
+                        </td>
+                        <td className="p-4">
+                          {a.autoSubmitted ? (
+                            <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-300 border border-rose-500/20 uppercase">
+                              Yes ({
+                                a.autoSubmitReason === 'camera_violation_limit_exceeded'
+                                  ? 'Camera Violation'
+                                  : a.autoSubmitReason === 'tab_switch_limit_exceeded'
+                                  ? 'Tab Switch'
+                                  : a.autoSubmitReason === 'fullscreen_exit_limit_exceeded'
+                                  ? 'FS Exit'
+                                  : 'Security Violation'
+                              })
+                            </span>
+                          ) : (
+                            <span className="text-[#a5a3c9] text-[11px]">No</span>
+                          )}
+                        </td>
+                        <td className="p-4 text-[#a5a3c9] font-mono">
+                          {new Date(a.updatedAt || a.createdAt).toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+        </div>
+      )}
+
+      {/* ==================== TAB 8: ADVANCED ANALYTICS ==================== */}
+      {activeTab === 'analytics' && (
+        <div className="space-y-8">
+          {/* Header Action */}
+          <div className="glass-card p-4 border border-amber-500/15 flex items-center justify-between">
+            <div>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-amber-400" />
+                Platform Academic Performance Analytics
+              </h3>
+              <p className="text-xs text-[#a5a3c9] mt-0.5">Subject benchmarks, teacher leaderboards, and peak traffic hours</p>
+            </div>
+
+            <button
+              onClick={() => handleExportCsv('results')}
+              className="px-4 py-2 rounded-xl bg-amber-500 text-indigo-950 font-bold hover:bg-amber-400 text-xs shadow-md shadow-amber-500/20 flex items-center gap-2 cursor-pointer transition-colors"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              Export Exam Results CSV
+            </button>
+          </div>
+
+          {analyticsLoading ? (
+            <BrandedLoader message="Calculating platform analytics..." />
+          ) : (
+            <>
+              {/* Analytics Section 1: Subject Performance Bar Chart */}
+              <div className="glass-card p-6 border border-amber-500/15 space-y-4">
+                <div className="border-b border-indigo-900/40 pb-3">
+                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                    <BarChart2 className="w-4 h-4 text-teal-400" />
+                    Mean Score Percentage Breakdown by Subject
+                  </h4>
+                </div>
+
+                <div className="h-72 w-full pt-2">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={subjectPerformance} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#25235c" />
+                      <XAxis dataKey="subject" stroke="#a5a3c9" fontSize={11} />
+                      <YAxis stroke="#a5a3c9" fontSize={11} domain={[0, 100]} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: '#171545', borderColor: 'rgba(245,166,35,0.2)', borderRadius: '12px', fontSize: '12px', color: '#f4f4f8' }}
+                      />
+                      <Bar dataKey="avgScorePercentage" name="Avg Score (%)" fill="#2dd4bf" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Analytics Section 2 & 3: Peak Usage Line Chart & Teacher Leaderboard */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                
+                {/* Peak Usage Line Chart */}
+                <div className="glass-card p-6 border border-amber-500/15 space-y-4">
+                  <div className="border-b border-indigo-900/40 pb-3">
+                    <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-amber-400" />
+                      Candidate Exam Submission Hours (Peak Activity)
+                    </h4>
+                  </div>
+
+                  <div className="h-72 w-full pt-2">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={peakUsageData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#25235c" />
+                        <XAxis dataKey="hour" stroke="#a5a3c9" fontSize={11} />
+                        <YAxis stroke="#a5a3c9" fontSize={11} />
+                        <Tooltip
+                          contentStyle={{ backgroundColor: '#171545', borderColor: 'rgba(245,166,35,0.2)', borderRadius: '12px', fontSize: '12px', color: '#f4f4f8' }}
+                        />
+                        <Line type="monotone" dataKey="submissions" name="Submissions" stroke="#f5a623" strokeWidth={3} dot={{ fill: '#f5a623', r: 4 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Teacher Activity Leaderboard */}
+                <div className="glass-card p-6 border border-amber-500/15 space-y-4">
+                  <div className="border-b border-indigo-900/40 pb-3 flex items-center justify-between">
+                    <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Award className="w-4 h-4 text-teal-300" />
+                      Faculty Educator Activity Leaderboard
+                    </h4>
+                    <span className="text-xs font-mono text-[#a5a3c9]">{teacherLeaderboard.length} Faculty</span>
+                  </div>
+
+                  <div className="overflow-x-auto max-h-72">
+                    <table className="w-full text-left text-xs text-slate-200">
+                      <thead className="bg-indigo-950/90 text-[#a5a3c9] uppercase text-[10px] font-mono border-b border-indigo-900/60">
+                        <tr>
+                          <th className="p-3">Faculty Name</th>
+                          <th className="p-3">Courses</th>
+                          <th className="p-3">Exams Created</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-indigo-900/40">
+                        {teacherLeaderboard.map((t, idx) => (
+                          <tr key={idx} className="hover:bg-indigo-900/30 transition-colors">
+                            <td className="p-3">
+                              <div className="font-bold text-white">{t.teacherName}</div>
+                              <div className="text-[10px] font-mono text-[#a5a3c9]">{t.teacherEmail}</div>
+                            </td>
+                            <td className="p-3 font-mono font-bold text-amber-400">{t.courseCount}</td>
+                            <td className="p-3 font-mono font-bold text-teal-300">{t.examCount}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+              </div>
+            </>
           )}
         </div>
       )}

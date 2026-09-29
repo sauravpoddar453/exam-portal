@@ -5,16 +5,12 @@ const {
   createSubject,
   deleteSubject,
 } = require('../controllers/subjectController');
-const { protect, authorize } = require('../middleware/authMiddleware');
+const { protect } = require('../middleware/authMiddleware');
 
-router.use(protect);
-router.use(authorize('teacher', 'admin'));
+const authMiddleware = protect;
 
-router.route('/')
-  .get(getSubjects)
-  .post(createSubject);
-
-router.route('/:id')
-  .delete(deleteSubject);
+router.get('/', authMiddleware, getSubjects);
+router.post('/', authMiddleware, createSubject);
+router.delete('/:id', authMiddleware, deleteSubject);
 
 module.exports = router;
