@@ -89,6 +89,11 @@ const getQuestions = async (req, res, next) => {
     if (getDBStatus() === 'Connected') {
       let query = {};
 
+      // Enforce teacher privacy: Teachers can only view questions created by themselves
+      if (req.user && req.user.role === 'teacher') {
+        query.createdBy = req.user._id;
+      }
+
       if (subject && subject !== 'All') {
         query.subject = subject;
       }
@@ -117,6 +122,11 @@ const getQuestions = async (req, res, next) => {
 
     // Mock fallback when DB is disconnected
     let filtered = [...MOCK_QUESTION_DATABASE];
+
+    if (req.user && req.user.role === 'teacher') {
+      const requesterId = (req.user._id || req.user.id).toString();
+      filtered = filtered.filter(q => q.createdBy && q.createdBy.toString() === requesterId);
+    }
 
     if (subject && subject !== 'All') {
       filtered = filtered.filter(q => q.subject.toLowerCase() === subject.toLowerCase());
@@ -160,6 +170,19 @@ const getQuestionById = async (req, res, next) => {
       if (!question) {
         return res.status(404).json({ success: false, message: 'Question not found' });
       }
+
+      // Enforce teacher privacy: Teachers can only view questions created by themselves
+      if (req.user && req.user.role === 'teacher') {
+        const ownerId = question.createdBy ? question.createdBy.toString() : '';
+        const requesterId = req.user._id.toString();
+        if (ownerId !== requesterId) {
+          return res.status(403).json({
+            success: false,
+            message: 'Forbidden: You do not have permission to view this question.',
+          });
+        }
+      }
+
       return res.status(200).json({ success: true, data: question });
     }
 
@@ -167,6 +190,18 @@ const getQuestionById = async (req, res, next) => {
     if (!mockQuestion) {
       return res.status(404).json({ success: false, message: 'Question not found in mock store' });
     }
+
+    if (req.user && req.user.role === 'teacher') {
+      const ownerId = mockQuestion.createdBy ? mockQuestion.createdBy.toString() : '';
+      const requesterId = (req.user._id || req.user.id).toString();
+      if (ownerId !== requesterId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Forbidden: You do not have permission to view this question.',
+        });
+      }
+    }
+
     return res.status(200).json({ success: true, data: mockQuestion });
   } catch (error) {
     next(error);
@@ -276,6 +311,18 @@ const updateQuestion = async (req, res, next) => {
         return res.status(404).json({ success: false, message: 'Question not found' });
       }
 
+      // Enforce teacher privacy: Teachers can only edit questions created by themselves
+      if (req.user && req.user.role === 'teacher') {
+        const ownerId = question.createdBy ? question.createdBy.toString() : '';
+        const requesterId = req.user._id.toString();
+        if (ownerId !== requesterId) {
+          return res.status(403).json({
+            success: false,
+            message: 'Forbidden: You do not have permission to edit this question.',
+          });
+        }
+      }
+
       question = await Question.findByIdAndUpdate(id, req.body, {
         new: true,
         runValidators: true,
@@ -292,6 +339,18 @@ const updateQuestion = async (req, res, next) => {
     const index = MOCK_QUESTION_DATABASE.findIndex(q => q._id === id);
     if (index === -1) {
       return res.status(404).json({ success: false, message: 'Question not found in mock store' });
+    }
+
+    const targetMock = MOCK_QUESTION_DATABASE[index];
+    if (req.user && req.user.role === 'teacher') {
+      const ownerId = targetMock.createdBy ? targetMock.createdBy.toString() : '';
+      const requesterId = (req.user._id || req.user.id).toString();
+      if (ownerId !== requesterId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Forbidden: You do not have permission to edit this question.',
+        });
+      }
     }
 
     MOCK_QUESTION_DATABASE[index] = {
@@ -325,6 +384,18 @@ const deleteQuestion = async (req, res, next) => {
         return res.status(404).json({ success: false, message: 'Question not found' });
       }
 
+      // Enforce teacher privacy: Teachers can only delete questions created by themselves
+      if (req.user && req.user.role === 'teacher') {
+        const ownerId = question.createdBy ? question.createdBy.toString() : '';
+        const requesterId = req.user._id.toString();
+        if (ownerId !== requesterId) {
+          return res.status(403).json({
+            success: false,
+            message: 'Forbidden: You do not have permission to delete this question.',
+          });
+        }
+      }
+
       await question.deleteOne();
 
       return res.status(200).json({
@@ -337,6 +408,18 @@ const deleteQuestion = async (req, res, next) => {
     const index = MOCK_QUESTION_DATABASE.findIndex(q => q._id === id);
     if (index === -1) {
       return res.status(404).json({ success: false, message: 'Question not found in mock store' });
+    }
+
+    const targetMock = MOCK_QUESTION_DATABASE[index];
+    if (req.user && req.user.role === 'teacher') {
+      const ownerId = targetMock.createdBy ? targetMock.createdBy.toString() : '';
+      const requesterId = (req.user._id || req.user.id).toString();
+      if (ownerId !== requesterId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Forbidden: You do not have permission to delete this question.',
+        });
+      }
     }
 
     MOCK_QUESTION_DATABASE.splice(index, 1);
