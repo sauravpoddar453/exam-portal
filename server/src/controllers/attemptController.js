@@ -451,6 +451,11 @@ const submitAttempt = async (req, res, next) => {
       let hasPendingEssay = false;
       const gradedAnswers = [];
 
+      // Calculate timeTaken in seconds
+      const startMs = attempt.startedAt ? new Date(attempt.startedAt).getTime() : Date.now();
+      const subMs = Date.now();
+      const timeTakenSec = Math.max(0, Math.round((subMs - startMs) / 1000));
+
       if (exam && Array.isArray(exam.questions)) {
         for (const item of exam.questions) {
           const q = item.question;
@@ -475,12 +480,25 @@ const submitAttempt = async (req, res, next) => {
             hasPendingEssay = true;
           }
 
+          const isAnsCorrect = evaluation.status === 'auto-graded' && evaluation.marksObtained > 0;
+
+          const rawOptions = Array.isArray(q.options)
+            ? q.options.map(opt => typeof opt === 'object' ? (opt.text || opt.optionText || '') : String(opt))
+            : [];
+
           gradedAnswers.push({
             question: q._id,
+            questionTextSnapshot: q.title || q.questionText || '',
+            questionTypeSnapshot: q.type || 'mcq-single',
+            optionsSnapshot: rawOptions,
             selectedOption: selOption,
+            correctAnswerSnapshot: q.correctAnswer,
+            explanationSnapshot: q.explanation || q.solution || '',
+            isCorrect: isAnsCorrect,
+            marksAwarded: Math.max(0, evaluation.marksObtained),
+            marksObtained: evaluation.marksObtained,
             isMarkedForReview: isMarked,
             status: evaluation.status,
-            marksObtained: evaluation.marksObtained,
             feedback: '',
             savedAt: new Date(),
           });
@@ -491,7 +509,8 @@ const submitAttempt = async (req, res, next) => {
       attempt.score = Math.max(0, totalScore);
       attempt.status = (isTimedOut || autoSubmitted || attempt.autoSubmitted) ? 'timed-out' : 'submitted';
       attempt.gradingStatus = hasPendingEssay ? 'pending-review' : 'graded';
-      attempt.submittedAt = new Date();
+      attempt.submittedAt = new Date(subMs);
+      attempt.timeTaken = timeTakenSec;
       attempt.remainingSeconds = 0;
       attempt.isPassed = attempt.score >= (attempt.passingMarks || 40);
 
@@ -590,6 +609,171 @@ const getAttemptResult = async (req, res, next) => {
     return res.status(200).json({
       success: true,
       data: mockAttempt,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Get complete attempt review details & itemized answer sheet for Teacher / Admin / Student
+ * @route   GET /api/attempts/:attemptId/review
+ * @access  Private (Teacher, Admin, or Attempt Owner Student)
+ */
+const getAttemptReview = async (req, res, next) => {
+  try {
+    const { attemptId } = req.params;
+    const userId = req.user ? (req.user._id || req.user.id) : null;
+    const userRole = req.user ? req.user.role : 'student';
+
+    if (getDBStatus() === 'Connected') {
+      const attempt = await Attempt.findById(attemptId)
+        .populate('student', 'name email role')
+        .populate({
+          path: 'exam',
+          populate: [
+            { path: 'questions.question' },
+            { path: 'course', select: 'title enrollmentCode teacher' },
+          ],
+        })
+        .populate('answers.question');
+
+      if (!attempt) {
+        return res.status(404).json({ success: false, message: 'Attempt record not found' });
+      }
+
+      const isOwnerStudent = String(attempt.student?._id || attempt.student) === String(userId);
+      let isExamTeacher = false;
+
+      if (userRole === 'teacher') {
+        const examCreatedBy = attempt.exam?.createdBy;
+        const courseTeacher = attempt.exam?.course?.teacher;
+        isExamTeacher = String(examCreatedBy) === String(userId) || String(courseTeacher) === String(userId);
+      }
+
+      if (userRole !== 'admin' && !isOwnerStudent && !isExamTeacher) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied: You do not have permission to review this attempt.',
+        });
+      }
+
+      const startMs = attempt.startedAt ? new Date(attempt.startedAt).getTime() : new Date(attempt.createdAt).getTime();
+      const endMs = attempt.submittedAt ? new Date(attempt.submittedAt).getTime() : Date.now();
+      const calculatedSeconds = Math.max(0, Math.round((endMs - startMs) / 1000));
+      const finalTimeTaken = attempt.timeTaken || calculatedSeconds;
+
+      const mins = Math.floor(finalTimeTaken / 60);
+      const secs = finalTimeTaken % 60;
+      const formattedTimeTaken = `${mins}m ${secs < 10 ? '0' : ''}${secs}s`;
+
+      const examDoc = attempt.exam;
+      const formattedAnswers = [];
+
+      if (examDoc && Array.isArray(examDoc.questions)) {
+        for (let idx = 0; idx < examDoc.questions.length; idx++) {
+          const item = examDoc.questions[idx];
+          const qDoc = item.question;
+          const qId = qDoc ? qDoc._id : item.question;
+
+          const savedAns = attempt.answers.find(a => 
+            String(a.question?._id || a.question) === String(qId)
+          );
+
+          const qText = savedAns?.questionTextSnapshot || qDoc?.title || qDoc?.questionText || `Question ${idx + 1}`;
+          const qType = savedAns?.questionTypeSnapshot || qDoc?.type || 'mcq-single';
+
+          let rawOptions = savedAns?.optionsSnapshot;
+          if (!rawOptions || rawOptions.length === 0) {
+            rawOptions = qDoc?.options
+              ? qDoc.options.map(opt => typeof opt === 'object' ? (opt.text || opt.optionText || '') : String(opt))
+              : [];
+          }
+
+          const maxMarks = item.marksOverride !== null && item.marksOverride !== undefined
+            ? item.marksOverride
+            : (qDoc?.marks || 1);
+
+          const selOption = savedAns ? savedAns.selectedOption : null;
+          const correctAns = savedAns?.correctAnswerSnapshot !== undefined && savedAns?.correctAnswerSnapshot !== null
+            ? savedAns.correctAnswerSnapshot
+            : qDoc?.correctAnswer;
+
+          const isCorrect = savedAns ? savedAns.isCorrect : false;
+          const marksAwarded = savedAns ? (savedAns.marksAwarded || savedAns.marksObtained || 0) : 0;
+          const status = savedAns ? savedAns.status : 'auto-graded';
+          const feedback = savedAns ? savedAns.feedback : '';
+          const explanation = savedAns?.explanationSnapshot || qDoc?.explanation || qDoc?.solution || '';
+
+          formattedAnswers.push({
+            index: idx + 1,
+            questionId: qId,
+            questionText: qText,
+            type: qType,
+            options: rawOptions,
+            selectedAnswer: selOption,
+            correctAnswer: correctAns,
+            isCorrect,
+            maxMarks,
+            marksAwarded,
+            status,
+            feedback,
+            explanation,
+          });
+        }
+      }
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          attemptId: attempt._id,
+          student: {
+            id: attempt.student?._id,
+            name: attempt.student?.name || 'Student',
+            email: attempt.student?.email || '',
+            role: attempt.student?.role || 'student',
+          },
+          exam: {
+            id: examDoc?._id,
+            title: examDoc?.title || 'Examination',
+            code: examDoc?.code || '',
+            totalMarks: attempt.totalMarks || examDoc?.totalMarks || 100,
+            passingMarks: attempt.passingMarks || examDoc?.passingMarks || 40,
+            durationMinutes: examDoc?.durationMinutes || 60,
+          },
+          startedAt: attempt.startedAt,
+          submittedAt: attempt.submittedAt,
+          timeTakenSeconds: finalTimeTaken,
+          formattedTimeTaken,
+          score: attempt.score,
+          totalMarks: attempt.totalMarks || examDoc?.totalMarks || 100,
+          isPassed: attempt.isPassed,
+          status: attempt.status,
+          gradingStatus: attempt.gradingStatus,
+          isFlagged: attempt.isFlagged,
+          autoSubmitted: attempt.autoSubmitted,
+          autoSubmitReason: attempt.autoSubmitReason,
+          answers: formattedAnswers,
+        },
+      });
+    }
+
+    const mockAttempt = MOCK_ATTEMPTS_STORE.find(a => a._id === attemptId);
+    return res.status(200).json({
+      success: true,
+      data: {
+        attemptId: mockAttempt ? mockAttempt._id : attemptId,
+        student: { name: 'Student', email: 'student@example.com' },
+        exam: { title: 'Mock Exam', code: 'MOCK-101', totalMarks: 100 },
+        startedAt: new Date().toISOString(),
+        submittedAt: new Date().toISOString(),
+        timeTakenSeconds: 1800,
+        formattedTimeTaken: '30m 00s',
+        score: mockAttempt ? mockAttempt.score : 85,
+        totalMarks: 100,
+        isPassed: true,
+        answers: [],
+      },
     });
   } catch (error) {
     next(error);
@@ -850,6 +1034,7 @@ module.exports = {
   submitAttempt,
   getStudentAttempts,
   getAttemptResult,
+  getAttemptReview,
   getPendingReviews,
   gradeEssayAnswer,
   downloadCertificatePDF,

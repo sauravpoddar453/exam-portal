@@ -148,6 +148,74 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // Forgot Password handler
+  const forgotPassword = async (email) => {
+    setError(null);
+    try {
+      const { ok, data } = await safeFetchJson('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+
+      if (!ok || !data?.success) {
+        const err = new Error(data?.message || 'Failed to process forgot password request.');
+        if (data?.requiresVerification) {
+          err.requiresVerification = true;
+          err.email = data.email || email;
+        }
+        throw err;
+      }
+
+      return data;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+  };
+
+  // Verify Reset OTP handler
+  const verifyResetOtp = async (email, otp) => {
+    setError(null);
+    try {
+      const { ok, data } = await safeFetchJson('/api/auth/verify-reset-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp }),
+      });
+
+      if (!ok || !data?.success) {
+        throw new Error(data?.message || 'Verification of reset code failed.');
+      }
+
+      return data;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+  };
+
+  // Reset Password handler
+  const resetPassword = async (email, resetToken, newPassword, confirmPassword) => {
+    setError(null);
+    try {
+      const { ok, data } = await safeFetchJson('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, resetToken, newPassword, confirmPassword }),
+      });
+
+      if (!ok || !data?.success) {
+        throw new Error(data?.message || 'Failed to reset password.');
+      }
+
+      return data;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+  };
+
   // Logout handler
   const logout = async () => {
     try {
@@ -184,6 +252,9 @@ export function AuthProvider({ children }) {
         register,
         verifyOtp,
         resendOtp,
+        forgotPassword,
+        verifyResetOtp,
+        resetPassword,
         logout,
         getRoleDashboard,
       }}

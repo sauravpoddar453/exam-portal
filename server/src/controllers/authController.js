@@ -1,9 +1,14 @@
+const crypto = require('crypto');
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { getDBStatus } = require('../config/db');
 const { MOCK_USERS_BY_TOKEN } = require('../middleware/authMiddleware');
-const { sendOtpVerificationEmail } = require('../services/emailService');
+const {
+  sendOtpVerificationEmail,
+  sendForgotPasswordOtpEmail,
+  sendPasswordResetSuccessEmail,
+} = require('../services/emailService');
 
 // In-memory mock database for fallback testing when MongoDB is disconnected
 const MOCK_USER_DATABASE = [
@@ -586,6 +591,290 @@ const getMe = async (req, res, next) => {
 };
 
 /**
+ * @desc    Forgot Password - request OTP reset code
+ * @route   POST /api/auth/forgot-password
+ * @access  Public
+ */
+const forgotPassword = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    if (!email || !email.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide an email address.',
+      });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    const genericResponse = {
+      success: true,
+      message: 'If an account exists with this email, a reset code has been sent.',
+    };
+
+    if (getDBStatus() === 'Connected') {
+      const user = await User.findOne({ email: cleanEmail });
+
+      if (!user) {
+        return res.status(200).json(genericResponse);
+      }
+
+      if (!user.isVerified) {
+        return res.status(400).json({
+          success: false,
+          requiresVerification: true,
+          email: user.email,
+          message: 'Your account is not verified yet. Please complete registration verification first.',
+        });
+      }
+
+      if (user.lastResetOtpSentAt) {
+        const secondsSince = (new Date() - new Date(user.lastResetOtpSentAt)) / 1000;
+        if (secondsSince < 60) {
+          const waitTime = Math.ceil(60 - secondsSince);
+          return res.status(429).json({
+            success: false,
+            message: `Please wait ${waitTime} seconds before requesting a new reset code.`,
+          });
+        }
+      }
+
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      user.resetPasswordOtp = otp;
+      user.resetPasswordOtpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+      user.lastResetOtpSentAt = new Date();
+      await user.save();
+
+      await sendForgotPasswordOtpEmail({
+        toEmail: user.email,
+        userName: user.name,
+        otpCode: otp,
+      });
+
+      return res.status(200).json(genericResponse);
+    }
+
+    const mockUser = MOCK_USER_DATABASE.find(u => u.email.toLowerCase() === cleanEmail);
+    if (!mockUser) {
+      return res.status(200).json(genericResponse);
+    }
+
+    if (!mockUser.isVerified) {
+      return res.status(400).json({
+        success: false,
+        requiresVerification: true,
+        email: mockUser.email,
+        message: 'Your account is not verified yet. Please complete registration verification first.',
+      });
+    }
+
+    if (mockUser.lastResetOtpSentAt) {
+      const secondsSince = (new Date() - new Date(mockUser.lastResetOtpSentAt)) / 1000;
+      if (secondsSince < 60) {
+        const waitTime = Math.ceil(60 - secondsSince);
+        return res.status(429).json({
+          success: false,
+          message: `Please wait ${waitTime} seconds before requesting a new reset code.`,
+        });
+      }
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    mockUser.resetPasswordOtp = otp;
+    mockUser.resetPasswordOtpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+    mockUser.lastResetOtpSentAt = new Date();
+
+    await sendForgotPasswordOtpEmail({
+      toEmail: mockUser.email,
+      userName: mockUser.name,
+      otpCode: otp,
+    });
+
+    return res.status(200).json(genericResponse);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Verify OTP code for password reset and issue short-lived single-use reset token
+ * @route   POST /api/auth/verify-reset-otp
+ * @access  Public
+ */
+const verifyResetOtp = async (req, res, next) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide email and 6-digit verification code.',
+      });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    const cleanOtp = otp.toString().trim();
+
+    if (getDBStatus() === 'Connected') {
+      const user = await User.findOne({ email: cleanEmail }).select('+resetPasswordOtp +resetPasswordOtpExpiry');
+
+      if (!user || !user.resetPasswordOtp || user.resetPasswordOtp !== cleanOtp) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid verification code. Please check and try again.',
+        });
+      }
+
+      if (user.resetPasswordOtpExpiry && new Date() > new Date(user.resetPasswordOtpExpiry)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Verification code has expired. Please request a new OTP code.',
+        });
+      }
+
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      user.resetPasswordToken = resetToken;
+      user.resetPasswordTokenExpiry = new Date(Date.now() + 10 * 60 * 1000);
+      user.resetPasswordOtp = undefined;
+      user.resetPasswordOtpExpiry = undefined;
+      await user.save();
+
+      return res.status(200).json({
+        success: true,
+        resetToken,
+        message: 'Reset code verified successfully. You may now enter your new password.',
+      });
+    }
+
+    const mockUser = MOCK_USER_DATABASE.find(u => u.email.toLowerCase() === cleanEmail);
+    if (!mockUser || !mockUser.resetPasswordOtp || mockUser.resetPasswordOtp !== cleanOtp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid verification code. Please check and try again (Mock DB).',
+      });
+    }
+
+    if (mockUser.resetPasswordOtpExpiry && new Date() > new Date(mockUser.resetPasswordOtpExpiry)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Verification code has expired. Please request a new OTP code.',
+      });
+    }
+
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    mockUser.resetPasswordToken = resetToken;
+    mockUser.resetPasswordTokenExpiry = new Date(Date.now() + 10 * 60 * 1000);
+    delete mockUser.resetPasswordOtp;
+    delete mockUser.resetPasswordOtpExpiry;
+
+    return res.status(200).json({
+      success: true,
+      resetToken,
+      message: 'Reset code verified successfully (Mock DB). You may now enter your new password.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Set new password using single-use reset token
+ * @route   POST /api/auth/reset-password
+ * @access  Public
+ */
+const resetPassword = async (req, res, next) => {
+  try {
+    const { email, resetToken, newPassword, confirmPassword } = req.body;
+
+    if (!email || !resetToken || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide email, reset token, and new password.',
+      });
+    }
+
+    if (confirmPassword !== undefined && newPassword !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password and confirm password do not match.',
+      });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 8 characters long.',
+      });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+
+    if (getDBStatus() === 'Connected') {
+      const user = await User.findOne({ email: cleanEmail }).select('+resetPasswordToken +resetPasswordTokenExpiry +password');
+
+      if (!user || !user.resetPasswordToken || user.resetPasswordToken !== resetToken) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid or expired password reset token.',
+        });
+      }
+
+      if (user.resetPasswordTokenExpiry && new Date() > new Date(user.resetPasswordTokenExpiry)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Password reset token has expired. Please request a new reset code.',
+        });
+      }
+
+      user.password = newPassword;
+      user.resetPasswordToken = undefined;
+      user.resetPasswordTokenExpiry = undefined;
+      await user.save();
+
+      await sendPasswordResetSuccessEmail({
+        toEmail: user.email,
+        userName: user.name,
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: 'Your ExamPortal password has been reset successfully! You can now log in with your new password.',
+      });
+    }
+
+    const mockUser = MOCK_USER_DATABASE.find(u => u.email.toLowerCase() === cleanEmail);
+    if (!mockUser || !mockUser.resetPasswordToken || mockUser.resetPasswordToken !== resetToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or expired password reset token (Mock DB).',
+      });
+    }
+
+    if (mockUser.resetPasswordTokenExpiry && new Date() > new Date(mockUser.resetPasswordTokenExpiry)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password reset token has expired. Please request a new reset code.',
+      });
+    }
+
+    mockUser.passwordHash = bcrypt.hashSync(newPassword, 10);
+    delete mockUser.resetPasswordToken;
+    delete mockUser.resetPasswordTokenExpiry;
+
+    await sendPasswordResetSuccessEmail({
+      toEmail: mockUser.email,
+      userName: mockUser.name,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Your ExamPortal password has been reset successfully! You can now log in with your new password.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+/**
  * @desc    Logout user / clear token
  * @route   GET /api/auth/logout
  * @access  Public
@@ -603,6 +892,9 @@ module.exports = {
   loginUser,
   verifyOtp,
   resendOtp,
+  forgotPassword,
+  verifyResetOtp,
+  resetPassword,
   getMe,
   logoutUser,
 };

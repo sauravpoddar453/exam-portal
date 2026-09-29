@@ -3,6 +3,7 @@ const router = express.Router();
 const {
   getAdminOverviewStats,
   getTeacherOverviewStats,
+  debugTeacherStats,
   getExamAnalytics,
   getAllUsers,
   blockUser,
@@ -32,6 +33,7 @@ router.get('/overview', authorize('admin'), getAdminOverviewStats);
 
 // Teacher Overview Stats & Activity (Admin and Teacher)
 router.get('/teacher-overview', authorize('admin', 'teacher'), getTeacherOverviewStats);
+router.get('/debug-teacher-stats', authorize('admin', 'teacher'), debugTeacherStats);
 
 // Per-exam analytics (Admin and Teacher)
 router.get('/analytics/exam/:examId', authorize('admin', 'teacher'), getExamAnalytics);

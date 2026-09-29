@@ -3,15 +3,17 @@ import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { KeyRound, Mail, ArrowRight, AlertCircle, CheckCircle2, RefreshCw } from 'lucide-react';
 
-export default function VerifyOTP() {
-  const { verifyOtp, resendOtp } = useAuth();
+export default function VerifyResetOTP() {
+  const { verifyResetOtp, forgotPassword } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
   const [email, setEmail] = useState(location.state?.email || '');
   const [otp, setOtp] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
-  const [successMessage, setSuccessMessage] = useState(location.state?.message || '');
+  const [successMessage, setSuccessMessage] = useState(
+    location.state?.message || 'A 6-digit reset code has been sent to your email.'
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResending, setIsResending] = useState(false);
 
@@ -34,7 +36,8 @@ export default function VerifyOTP() {
     setErrorMessage('');
     setSuccessMessage('');
 
-    if (!email.trim() || !email.includes('@')) {
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
       setErrorMessage('Please enter a valid email address.');
       return;
     }
@@ -47,14 +50,19 @@ export default function VerifyOTP() {
 
     try {
       setIsSubmitting(true);
-      const res = await verifyOtp(email, cleanOtp);
-      setSuccessMessage(res.message || 'Email verified successfully! Redirecting to sign in...');
+      const res = await verifyResetOtp(cleanEmail, cleanOtp);
+
+      if (res.resetToken) {
+        sessionStorage.setItem('resetToken', res.resetToken);
+        sessionStorage.setItem('resetEmail', cleanEmail);
+      }
+
+      setSuccessMessage(res.message || 'Code verified successfully! Proceeding to password reset...');
       setTimeout(() => {
-        navigate('/login', {
-          replace: true,
-          state: { message: 'Email verified successfully! You can now sign in to your account.' },
+        navigate('/set-new-password', {
+          state: { email: cleanEmail, resetToken: res.resetToken },
         });
-      }, 2000);
+      }, 1200);
     } catch (err) {
       setErrorMessage(err.message || 'Verification failed. Please check your code and try again.');
     } finally {
@@ -67,18 +75,19 @@ export default function VerifyOTP() {
     setErrorMessage('');
     setSuccessMessage('');
 
-    if (!email.trim() || !email.includes('@')) {
-      setErrorMessage('Please enter your registered email address to resend OTP.');
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setErrorMessage('Please enter your email address to resend the reset code.');
       return;
     }
 
     try {
       setIsResending(true);
-      const res = await resendOtp(email);
-      setSuccessMessage(res.message || 'A new 6-digit OTP code has been sent to your email address.');
+      const res = await forgotPassword(cleanEmail);
+      setSuccessMessage(res.message || 'A new 6-digit reset code has been sent to your email.');
       setTimer(60);
     } catch (err) {
-      setErrorMessage(err.message || 'Failed to resend OTP code.');
+      setErrorMessage(err.message || 'Failed to resend reset code.');
     } finally {
       setIsResending(false);
     }
@@ -88,16 +97,16 @@ export default function VerifyOTP() {
     <div className="min-h-[80vh] flex items-center justify-center px-4 py-12">
       <div className="glass-card max-w-md w-full p-8 space-y-6 border border-amber-500/20 rounded-2xl relative overflow-hidden shadow-2xl">
         
-        {/* Glow backdrop */}
+        {/* Ambient glow backdrop */}
         <div className="absolute top-0 right-0 w-36 h-36 bg-amber-500/10 blur-3xl rounded-full pointer-events-none" />
 
         <div className="text-center">
           <div className="inline-flex p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 mb-3">
             <KeyRound className="w-8 h-8" />
           </div>
-          <h2 className="text-2xl font-extrabold text-white">Email Verification</h2>
+          <h2 className="text-2xl font-extrabold text-white">Verify Reset Code</h2>
           <p className="text-indigo-200/70 text-xs mt-1">
-            Enter the 6-digit OTP sent to your registered email address
+            Enter the 6-digit OTP code sent to your email to verify password reset ownership
           </p>
         </div>
 
@@ -116,7 +125,6 @@ export default function VerifyOTP() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          
           <div>
             <label className="block text-xs font-semibold text-indigo-200 mb-1">Target Email</label>
             <div className="relative">
@@ -133,7 +141,7 @@ export default function VerifyOTP() {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-indigo-200 mb-1">6-Digit Verification Code</label>
+            <label className="block text-xs font-semibold text-indigo-200 mb-1">6-Digit Reset Code</label>
             <input
               type="text"
               maxLength={6}
@@ -144,25 +152,24 @@ export default function VerifyOTP() {
               className="w-full px-4 py-3 rounded-xl bg-indigo-950/80 border border-amber-500/30 text-amber-400 text-2xl font-mono font-bold tracking-[0.4em] text-center focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
             />
             <p className="text-[11px] text-indigo-300/60 mt-1 text-center">
-              Check your inbox for the 6-digit OTP code.
+              Check your inbox for the 6-digit OTP reset code.
             </p>
           </div>
 
           <button
             type="submit"
-            disabled={isSubmitting || successMessage.includes('Redirecting')}
+            disabled={isSubmitting || successMessage.includes('Proceeding')}
             className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-indigo-950 text-sm font-bold shadow-lg shadow-amber-500/20 hover:scale-[1.01] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
           >
             {isSubmitting ? (
               <span className="w-4 h-4 border-2 border-indigo-950 border-t-transparent rounded-full animate-spin" />
             ) : (
               <>
-                Verify Code & Activate
+                Verify Code
                 <ArrowRight className="w-4 h-4" />
               </>
             )}
           </button>
-
         </form>
 
         <div className="pt-2 border-t border-indigo-900/60 flex items-center justify-between text-xs text-indigo-200/70">
@@ -183,12 +190,11 @@ export default function VerifyOTP() {
         </div>
 
         <p className="text-center text-xs text-indigo-200/70">
-          Already verified?{' '}
+          Remember password?{' '}
           <Link to="/login" className="text-amber-400 font-semibold hover:underline">
             Back to Sign In
           </Link>
         </p>
-
       </div>
     </div>
   );

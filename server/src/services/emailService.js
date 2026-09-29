@@ -339,6 +339,76 @@ const sendTeacherRejectionEmail = async ({ toEmail, userName, reason }) => {
   });
 };
 
+/**
+ * Send Forgot Password OTP Email Code
+ */
+const sendForgotPasswordOtpEmail = async ({ toEmail, userName, otpCode }) => {
+  console.log(`\n==================================================`);
+  console.log(`[Email Service] FORGOT PASSWORD OTP FOR ${toEmail}: ${otpCode}`);
+  console.log(`==================================================\n`);
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; background-color: #fafafa; color: #111827; padding: 30px; border-radius: 12px;">
+      <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 32px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+        <div style="text-align: center; margin-bottom: 24px;">
+          <span style="font-size: 24px; font-weight: bold; color: #dc2626;">ExamPortal</span>
+        </div>
+        <h2 style="color: #111827; font-size: 20px; font-weight: bold; margin-top: 0; text-align: center;">Reset Your Password</h2>
+        <p style="color: #4b5563; font-size: 14px; line-height: 1.6; text-align: center;">
+          Hello <strong>${userName || 'User'}</strong>,<br/>
+          We received a request to reset your ExamPortal password. Use the 6-digit OTP code below to verify your identity and set a new password:
+        </p>
+        <div style="background-color: #fef2f2; border: 1px solid #fca5a5; padding: 20px; border-radius: 8px; margin: 24px 0; text-align: center;">
+          <span style="font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #dc2626;">${otpCode}</span>
+        </div>
+        <p style="color: #6b7280; font-size: 13px; text-align: center;">
+          This code will expire in <strong>10 minutes</strong>. If you did not request a password reset, please ignore this email and your password will remain unchanged.
+        </p>
+      </div>
+    </div>
+  `;
+
+  return await sendEmail({
+    to: toEmail,
+    subject: `Reset Your ExamPortal Password`,
+    html,
+    text: `Your ExamPortal password reset code is: ${otpCode}`,
+  });
+};
+
+/**
+ * Send Password Reset Confirmation Email
+ */
+const sendPasswordResetSuccessEmail = async ({ toEmail, userName }) => {
+  const html = `
+    <div style="font-family: Arial, sans-serif; background-color: #fafafa; color: #111827; padding: 30px; border-radius: 12px;">
+      <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 32px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+        <div style="text-align: center; margin-bottom: 24px;">
+          <span style="font-size: 24px; font-weight: bold; color: #dc2626;">ExamPortal</span>
+        </div>
+        <h2 style="color: #111827; font-size: 20px; font-weight: bold; margin-top: 0; text-align: center;">Password Reset Successful</h2>
+        <p style="color: #4b5563; font-size: 14px; line-height: 1.6; text-align: center;">
+          Hello <strong>${userName || 'User'}</strong>,<br/>
+          Your ExamPortal account password was just changed successfully.
+        </p>
+        <div style="background-color: #f0fdf4; border: 1px solid #86efac; padding: 16px; border-radius: 8px; margin: 24px 0; text-align: center; color: #166534; font-weight: 600; font-size: 14px;">
+          ✓ Password Updated
+        </div>
+        <p style="color: #6b7280; font-size: 13px; text-align: center;">
+          If this wasn't you, please contact support immediately or reset your password again.
+        </p>
+      </div>
+    </div>
+  `;
+
+  return await sendEmail({
+    to: toEmail,
+    subject: `Password Reset Successful - ExamPortal`,
+    html,
+    text: `Your ExamPortal account password was just changed. If this wasn't you, contact support immediately.`,
+  });
+};
+
 module.exports = {
   sendEmail,
   verifyTransporterOnStartup,
@@ -346,6 +416,9 @@ module.exports = {
   sendExamReminderEmail,
   sendExamResultsEmail,
   sendOtpVerificationEmail,
+  sendForgotPasswordOtpEmail,
+  sendPasswordResetSuccessEmail,
   sendTeacherApprovalEmail,
   sendTeacherRejectionEmail,
 };
+

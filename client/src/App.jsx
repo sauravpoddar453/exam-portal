@@ -13,6 +13,9 @@ import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import VerifyOTP from './pages/VerifyOTP';
+import ForgotPassword from './pages/ForgotPassword';
+import VerifyResetOTP from './pages/VerifyResetOTP';
+import SetNewPassword from './pages/SetNewPassword';
 import NotFound from './pages/NotFound';
 
 // Protected Role Dashboards & Modules
@@ -25,14 +28,15 @@ import TakeExam from './pages/TakeExam';
 import ExamResult from './pages/ExamResult';
 import ManualGrading from './pages/ManualGrading';
 import ExamAnalytics from './pages/ExamAnalytics';
+import AnswerSheetReview from './pages/AnswerSheetReview';
 
 export default function App() {
   return (
     <AuthProvider>
       <Router>
-        <div className="flex flex-col min-h-screen bg-[#fafafa] text-gray-900 font-['Inter',sans-serif]">
+        <div className="flex flex-col min-h-screen w-full bg-[#0b0a26] text-[#f4f4f8] font-['Inter',sans-serif]">
           <Navbar />
-          <main className="flex-grow">
+          <main className="flex-grow w-full">
             <ErrorBoundary>
               <Routes>
                 {/* Public Routes */}
@@ -42,6 +46,9 @@ export default function App() {
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
                 <Route path="/verify-otp" element={<VerifyOTP />} />
+                <Route path="/forgot-password" element={<ForgotPassword />} />
+                <Route path="/verify-reset-otp" element={<VerifyResetOTP />} />
+                <Route path="/set-new-password" element={<SetNewPassword />} />
 
                 {/* Protected Role-Based Routes */}
                 <Route
@@ -97,6 +104,16 @@ export default function App() {
                   element={
                     <ProtectedRoute allowedRoles={['student', 'teacher', 'admin']}>
                       <ExamResult />
+                    </ProtectedRoute>
+                  }
+                />
+
+                {/* Detailed Answer Sheet Review Studio (Teacher/Admin/Student) */}
+                <Route
+                  path="/attempts/:attemptId/review"
+                  element={
+                    <ProtectedRoute allowedRoles={['student', 'teacher', 'admin']}>
+                      <AnswerSheetReview />
                     </ProtectedRoute>
                   }
                 />

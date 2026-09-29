@@ -117,15 +117,29 @@ const getAdminOverviewStats = async (req, res, next) => {
  * @route   GET /api/admin/teacher-overview
  * @access  Private (Teacher, Admin)
  */
+/**
+ * @desc    Get real stats & candidate activity for logged-in teacher / admin
+ * @route   GET /api/admin/teacher-overview
+ * @access  Private (Teacher, Admin)
+ */
 const getTeacherOverviewStats = async (req, res, next) => {
   try {
     const teacherId = req.user._id || req.user.id;
 
     if (getDBStatus() === 'Connected') {
       const isTeacher = req.user.role === 'teacher';
-      const examQuery = isTeacher ? { createdBy: teacherId } : {};
+
+      // Find all courses taught by this teacher
+      const teacherCourses = await Course.find(isTeacher ? { teacher: teacherId } : {});
+      const teacherCourseIds = teacherCourses.map(c => c._id);
+
+      // Find exams created by teacher OR belonging to teacher's courses
+      const examQuery = isTeacher
+        ? { $or: [{ createdBy: teacherId }, { course: { $in: teacherCourseIds } }] }
+        : {};
 
       const teacherExams = await Exam.find(examQuery)
+        .populate('course', 'title code teacher')
         .populate('questions.question')
         .sort({ createdAt: -1 });
 
@@ -134,26 +148,76 @@ const getTeacherOverviewStats = async (req, res, next) => {
       const publishedCount = teacherExams.filter(e => e.isActive).length;
       const draftCount = teacherExams.filter(e => !e.isActive).length;
 
-      const attempts = await Attempt.find({ exam: { $in: examIds } })
+      // Find ALL attempt records for teacher's exams (no filter first)
+      const rawAttempts = await Attempt.find({ exam: { $in: examIds } })
         .populate('student', 'name email role')
         .populate('exam', 'title code durationMinutes totalMarks')
         .sort({ createdAt: -1 });
 
-      const evaluatedCount = attempts.filter(a => a.status === 'submitted' || a.status === 'timed-out').length;
-      const autoGradedCount = attempts.filter(a => a.status === 'submitted' && a.gradingStatus !== 'pending-review').length;
-      const pendingReviewCount = attempts.filter(a => a.gradingStatus === 'pending-review').length;
+      // Calculate submission status counts
+      const submittedCount = rawAttempts.filter(a => a.status === 'submitted').length;
+      const timedOutCount = rawAttempts.filter(a => a.status === 'timed-out').length;
+      const inProgressCount = rawAttempts.filter(a => a.status === 'in-progress').length;
+      const evaluatedCount = submittedCount + timedOutCount;
+
+      const autoGradedCount = rawAttempts.filter(a => (a.status === 'submitted' || a.status === 'timed-out') && a.gradingStatus !== 'pending-review').length;
+      const pendingReviewCount = rawAttempts.filter(a => a.gradingStatus === 'pending-review').length;
+
+      // Calculate unique active students (from enrolled courses + exam attempts)
+      const uniqueStudentIds = new Set();
+      teacherCourses.forEach(c => {
+        if (Array.isArray(c.students)) {
+          c.students.forEach(stId => uniqueStudentIds.add(String(stId)));
+        }
+      });
+      rawAttempts.forEach(a => {
+        if (a.student) {
+          uniqueStudentIds.add(String(a.student._id || a.student));
+        }
+      });
+      const activeStudentsCount = uniqueStudentIds.size;
+
+      // Console log raw vs filtered stats for debugging
+      console.log(`\n=================== TEACHER OVERVIEW STATS DEBUG ===================`);
+      console.log(`[Teacher Stats] Teacher ID: ${teacherId} | Role: ${req.user.role}`);
+      console.log(`[Teacher Stats] Total Teacher Courses: ${teacherCourses.length}`);
+      console.log(`[Teacher Stats] Total Teacher Exams: ${teacherExams.length}`);
+      console.log(`[Teacher Stats] Raw Total Attempt Records (No Filters): ${rawAttempts.length}`);
+      console.log(`[Teacher Stats] Attempts by Status -> submitted: ${submittedCount} | timed-out: ${timedOutCount} | in-progress: ${inProgressCount}`);
+      console.log(`[Teacher Stats] Total Evaluated Submissions: ${evaluatedCount}`);
+      console.log(`[Teacher Stats] Unique Active Candidates Count: ${activeStudentsCount}`);
+      console.log(`====================================================================\n`);
+
+      // Format recent activity feed for frontend display
+      const recentActivity = rawAttempts.slice(0, 10).map(a => ({
+        _id: a._id,
+        examCode: a.exam?.code || 'EXAM',
+        examTitle: a.exam?.title || 'Assessment',
+        studentName: a.student?.name || 'Candidate',
+        studentEmail: a.student?.email || '',
+        score: a.score || 0,
+        totalMarks: a.totalMarks || a.exam?.totalMarks || 100,
+        submittedAt: a.submittedAt || a.updatedAt || a.createdAt,
+        isPassed: !!a.isPassed,
+        status: a.status,
+        gradingStatus: a.gradingStatus,
+      }));
 
       return res.status(200).json({
         success: true,
         data: {
           totalExams: teacherExams.length,
+          examsCount: teacherExams.length,
           publishedCount,
           draftCount,
-          totalAttempts: attempts.length,
+          totalAttempts: rawAttempts.length,
+          totalSubmissions: evaluatedCount,
           evaluatedCount,
+          activeStudentsCount,
           autoGradedCount,
           pendingReviewCount,
-          recentAttempts: attempts.slice(0, 8),
+          recentAttempts: rawAttempts.slice(0, 10),
+          recentActivity,
           exams: teacherExams,
         },
       });
@@ -163,15 +227,87 @@ const getTeacherOverviewStats = async (req, res, next) => {
       success: true,
       data: {
         totalExams: 0,
+        examsCount: 0,
         publishedCount: 0,
         draftCount: 0,
         totalAttempts: 0,
+        totalSubmissions: 0,
         evaluatedCount: 0,
+        activeStudentsCount: 0,
         autoGradedCount: 0,
         pendingReviewCount: 0,
         recentAttempts: [],
+        recentActivity: [],
         exams: [],
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Debug endpoint to inspect raw vs filtered teacher attempt stats
+ * @route   GET /api/admin/debug-teacher-stats
+ * @access  Private (Teacher, Admin)
+ */
+const debugTeacherStats = async (req, res, next) => {
+  try {
+    const teacherId = req.user._id || req.user.id;
+    const isTeacher = req.user.role === 'teacher';
+
+    const teacherCourses = await Course.find(isTeacher ? { teacher: teacherId } : {});
+    const teacherCourseIds = teacherCourses.map(c => c._id);
+
+    const examQuery = isTeacher
+      ? { $or: [{ createdBy: teacherId }, { course: { $in: teacherCourseIds } }] }
+      : {};
+
+    const teacherExams = await Exam.find(examQuery);
+    const examIds = teacherExams.map(e => e._id);
+
+    const rawAttempts = await Attempt.find({ exam: { $in: examIds } })
+      .populate('student', 'name email')
+      .populate('exam', 'title code');
+
+    const submittedCount = rawAttempts.filter(a => a.status === 'submitted').length;
+    const timedOutCount = rawAttempts.filter(a => a.status === 'timed-out').length;
+    const inProgressCount = rawAttempts.filter(a => a.status === 'in-progress').length;
+    const totalEvaluated = submittedCount + timedOutCount;
+
+    const uniqueStudents = new Set();
+    teacherCourses.forEach(c => c.students?.forEach(s => uniqueStudents.add(String(s))));
+    rawAttempts.forEach(a => { if (a.student) uniqueStudents.add(String(a.student._id || a.student)); });
+
+    const debugReport = {
+      teacherId,
+      teacherRole: req.user.role,
+      totalCourses: teacherCourses.length,
+      totalExams: teacherExams.length,
+      rawAttemptsTotalNoFilter: rawAttempts.length,
+      statusBreakdown: {
+        submitted: submittedCount,
+        timedOut: timedOutCount,
+        inProgress: inProgressCount,
+        totalEvaluated: totalEvaluated,
+      },
+      activeStudentsUniqueCount: uniqueStudents.size,
+      rawAttemptDetails: rawAttempts.map(a => ({
+        attemptId: a._id,
+        studentName: a.student?.name,
+        examTitle: a.exam?.title,
+        status: a.status,
+        gradingStatus: a.gradingStatus,
+        score: a.score,
+        totalMarks: a.totalMarks,
+      })),
+    };
+
+    console.log('[DEBUG TEACHER STATS REPORT]:', JSON.stringify(debugReport, null, 2));
+
+    return res.status(200).json({
+      success: true,
+      debugReport,
     });
   } catch (error) {
     next(error);
@@ -742,10 +878,24 @@ const getAdminCourses = async (req, res, next) => {
       const formatted = [];
       for (const course of courses) {
         const examCount = await Exam.countDocuments({ course: course._id });
+        const cObj = course.toObject();
         formatted.push({
-          ...course.toObject(),
-          studentCount: course.students ? course.students.length : 0,
+          _id: cObj._id,
+          title: cObj.title || 'Untitled Course',
+          description: cObj.description || '',
+          enrollmentCode: cObj.enrollmentCode || 'N/A',
+          teacher: cObj.teacher ? {
+            _id: cObj.teacher._id,
+            name: cObj.teacher.name || 'Faculty User',
+            email: cObj.teacher.email || '',
+            role: cObj.teacher.role || 'teacher',
+          } : { name: 'Unknown Teacher', email: '' },
+          students: cObj.students || [],
+          studentCount: Array.isArray(cObj.students) ? cObj.students.length : 0,
           examCount,
+          isUnderReview: !!cObj.isUnderReview,
+          createdAt: cObj.createdAt || new Date(),
+          updatedAt: cObj.updatedAt || new Date(),
         });
       }
 
@@ -959,6 +1109,7 @@ const getProctorAudit = async (req, res, next) => {
 module.exports = {
   getAdminOverviewStats,
   getTeacherOverviewStats,
+  debugTeacherStats,
   getExamAnalytics,
   getAllUsers,
   blockUser,

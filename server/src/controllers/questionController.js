@@ -1,4 +1,5 @@
 const Question = require('../models/Question');
+const Subject = require('../models/Subject');
 const { getDBStatus } = require('../config/db');
 
 // In-memory mock database for fallback testing when MongoDB is disconnected
@@ -199,6 +200,17 @@ const createQuestion = async (req, res, next) => {
     }
 
     if (getDBStatus() === 'Connected') {
+      const cleanSubj = (subject || 'General').trim();
+      if (req.user && cleanSubj && cleanSubj.toLowerCase() !== 'general') {
+        const existingSubj = await Subject.findOne({
+          createdBy: req.user._id,
+          name: { $regex: new RegExp(`^${cleanSubj}$`, 'i') },
+        });
+        if (!existingSubj) {
+          await Subject.create({ name: cleanSubj, createdBy: req.user._id }).catch(() => {});
+        }
+      }
+
       const question = await Question.create({
         questionText,
         type: type || 'mcq-single',
@@ -207,7 +219,7 @@ const createQuestion = async (req, res, next) => {
         marks: marks !== undefined ? Number(marks) : 1,
         negativeMarks: negativeMarks !== undefined ? Number(negativeMarks) : 0,
         difficulty: difficulty || 'medium',
-        subject: subject || 'General',
+        subject: cleanSubj,
         tags: tags || [],
         explanation: explanation || '',
         createdBy: req.user ? req.user._id : null,
@@ -372,6 +384,19 @@ const bulkUploadQuestions = async (req, res, next) => {
     }));
 
     if (getDBStatus() === 'Connected') {
+      if (req.user) {
+        const uniqueSubjs = [...new Set(formattedQuestions.map(q => (q.subject || 'General').trim()).filter(s => s && s.toLowerCase() !== 'general'))];
+        for (const subName of uniqueSubjs) {
+          const existingSub = await Subject.findOne({
+            createdBy: req.user._id,
+            name: { $regex: new RegExp(`^${subName}$`, 'i') },
+          });
+          if (!existingSub) {
+            await Subject.create({ name: subName, createdBy: req.user._id }).catch(() => {});
+          }
+        }
+      }
+
       const inserted = await Question.insertMany(formattedQuestions);
       return res.status(201).json({
         success: true,

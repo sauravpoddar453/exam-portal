@@ -6,9 +6,38 @@ const answerSchema = new mongoose.Schema({
     ref: 'Question',
     required: true,
   },
+  questionTextSnapshot: {
+    type: String,
+    default: '',
+  },
+  questionTypeSnapshot: {
+    type: String,
+    default: '',
+  },
+  optionsSnapshot: [String],
   selectedOption: {
     type: mongoose.Schema.Types.Mixed,
     default: null,
+  },
+  correctAnswerSnapshot: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null,
+  },
+  explanationSnapshot: {
+    type: String,
+    default: '',
+  },
+  isCorrect: {
+    type: Boolean,
+    default: false,
+  },
+  marksAwarded: {
+    type: Number,
+    default: 0,
+  },
+  timeSpentOnQuestion: {
+    type: Number,
+    default: 0,
   },
   isMarkedForReview: {
     type: Boolean,
@@ -94,6 +123,10 @@ const attemptSchema = new mongoose.Schema(
     submittedAt: {
       type: Date,
       default: null,
+    },
+    timeTaken: {
+      type: Number,
+      default: 0,
     },
     remainingSeconds: {
       type: Number,

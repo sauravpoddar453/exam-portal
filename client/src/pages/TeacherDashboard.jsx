@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { safeFetchJson } from '../utils/api';
+import AnimatedCounter from '../components/AnimatedCounter';
+import BrandedLoader from '../components/BrandedLoader';
 import { 
   BookOpen, 
   PlusCircle, 
@@ -16,7 +18,7 @@ import {
   FileCheck,
   BarChart3,
   Layers,
-  CheckCircle
+  FileText
 } from 'lucide-react';
 import DeleteExamModal from '../components/DeleteExamModal';
 
@@ -38,7 +40,6 @@ export default function TeacherDashboard() {
   const [createdCourseCode, setCreatedCourseCode] = useState(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [deleteTargetExam, setDeleteTargetExam] = useState(null);
-  const [toastMessage, setToastMessage] = useState('');
 
   // View Enrolled Students Modal
   const [selectedCourse, setSelectedCourse] = useState(null);
@@ -91,7 +92,6 @@ export default function TeacherDashboard() {
     fetchCourses();
   }, [fetchTeacherData, fetchCourses]);
 
-  // Create Course Handler
   const handleCreateCourse = async (e) => {
     e.preventDefault();
     if (!courseTitle.trim()) return;
@@ -122,7 +122,6 @@ export default function TeacherDashboard() {
     }
   };
 
-  // View Enrolled Students
   const handleViewCourseDetails = async (course) => {
     setSelectedCourse(course);
     setStudentsLoading(true);
@@ -140,7 +139,6 @@ export default function TeacherDashboard() {
     }
   };
 
-  // Remove Student from Course
   const handleRemoveStudent = async (courseId, studentId) => {
     if (!window.confirm('Are you sure you want to remove this student from the course?')) return;
     try {
@@ -159,14 +157,12 @@ export default function TeacherDashboard() {
     }
   };
 
-  // Copy Code to Clipboard
   const handleCopyCode = (code) => {
     navigator.clipboard.writeText(code);
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
-  // Create Quick Exam Handler
   const handleCreateExam = async (e) => {
     e.preventDefault();
     if (!selectedExamCourse) {
@@ -211,46 +207,46 @@ export default function TeacherDashboard() {
       
       {/* Teacher Approval Status Warning Banner */}
       {user?.role === 'teacher' && user?.teacherApprovalStatus === 'pending' && (
-        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300 text-amber-900 flex items-start gap-3 shadow-sm">
-          <div className="p-2 bg-amber-100 rounded-xl text-amber-700 flex-shrink-0">
+        <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 flex items-start gap-3 shadow-sm">
+          <div className="p-2 bg-amber-500/20 rounded-xl text-amber-400 flex-shrink-0">
             <GraduationCap className="w-5 h-5" />
           </div>
           <div>
-            <h4 className="text-sm font-bold text-amber-900">⏳ Faculty Account Approval Pending</h4>
-            <p className="text-xs text-amber-800 mt-0.5">
-              Your teacher registration is currently under review by system administrators. Course and exam creation privileges are restricted until approved. You will receive an email notification once your account is verified.
+            <h4 className="text-sm font-bold text-white">⏳ Faculty Account Approval Pending</h4>
+            <p className="text-xs text-indigo-200/70 mt-0.5">
+              Your teacher registration is currently under review by system administrators. Course and exam creation privileges are restricted until approved.
             </p>
           </div>
         </div>
       )}
 
       {user?.role === 'teacher' && user?.teacherApprovalStatus === 'rejected' && (
-        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-300 text-rose-900 flex items-start gap-3 shadow-sm">
-          <div className="p-2 bg-rose-100 rounded-xl text-rose-700 flex-shrink-0">
+        <div className="p-4 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-300 flex items-start gap-3 shadow-sm">
+          <div className="p-2 bg-rose-500/20 rounded-xl text-rose-400 flex-shrink-0">
             <X className="w-5 h-5" />
           </div>
           <div>
-            <h4 className="text-sm font-bold text-rose-900">❌ Faculty Account Registration Rejected</h4>
-            <p className="text-xs text-rose-800 mt-0.5">
-              Your teacher account application was not approved by system administrators. You cannot publish courses or conduct exams on this platform.
+            <h4 className="text-sm font-bold text-white">❌ Faculty Account Registration Rejected</h4>
+            <p className="text-xs text-indigo-200/70 mt-0.5">
+              Your teacher account application was not approved by system administrators.
             </p>
           </div>
         </div>
       )}
 
       {/* Header Banner */}
-      <div className="bg-white p-6 sm:p-8 border border-gray-200 rounded-2xl shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-40 h-40 bg-red-600/5 blur-3xl rounded-full pointer-events-none" />
+      <div className="glass-card p-6 sm:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-40 h-40 bg-amber-500/10 blur-3xl rounded-full pointer-events-none" />
         
         <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-50 border border-red-200 text-red-700 text-xs font-semibold uppercase mb-3">
-            <GraduationCap className="w-3.5 h-3.5 text-red-600" />
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold uppercase mb-3">
+            <GraduationCap className="w-3.5 h-3.5 text-amber-400" />
             Teacher & Educator Portal
           </div>
-          <h1 className="text-3xl font-extrabold text-gray-900">
+          <h1 className="text-3xl font-extrabold text-white">
             Instructor Control Center - {user?.name || 'Teacher'}
           </h1>
-          <p className="text-gray-600 text-sm mt-1">
+          <p className="text-indigo-200/70 text-sm mt-1">
             Manage your courses, share enrollment codes, build tests, and review student grades.
           </p>
         </div>
@@ -264,9 +260,9 @@ export default function TeacherDashboard() {
               }
               setShowCourseModal(true);
             }}
-            className="px-5 py-2.5 rounded-xl bg-gray-900 hover:bg-black text-white font-semibold text-xs shadow-md flex items-center gap-2 cursor-pointer"
+            className="px-5 py-2.5 rounded-xl bg-indigo-900/60 hover:bg-amber-500/10 border border-amber-500/30 text-amber-300 font-semibold text-xs shadow-md flex items-center gap-2 cursor-pointer"
           >
-            <Layers className="w-4 h-4 text-red-500" />
+            <Layers className="w-4 h-4 text-amber-400" />
             + Create Course / Batch
           </button>
 
@@ -283,7 +279,7 @@ export default function TeacherDashboard() {
               }
               setShowCreateExamModal(true);
             }}
-            className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold text-xs shadow-md shadow-red-600/20 flex items-center gap-2 cursor-pointer"
+            className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-indigo-950 font-bold text-xs shadow-lg shadow-amber-500/20 flex items-center gap-2 cursor-pointer"
           >
             <PlusCircle className="w-4 h-4" />
             Create Exam
@@ -294,81 +290,83 @@ export default function TeacherDashboard() {
       {/* Teacher Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-6">
         
-        <div className="bg-white p-5 border border-gray-200 rounded-2xl shadow-sm">
+        <div className="glass-card p-5">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-gray-500">My Courses</span>
-            <Layers className="w-5 h-5 text-red-600" />
+            <span className="text-xs font-semibold text-indigo-300">My Courses</span>
+            <Layers className="w-5 h-5 text-amber-400" />
           </div>
-          <div className="text-3xl font-bold text-gray-900">{courses.length} Active</div>
-          <p className="text-xs text-gray-500 mt-1">Batches & Subject Groups</p>
+          <div className="text-3xl font-extrabold text-amber-400 font-mono">
+            {coursesLoading ? '...' : <AnimatedCounter value={courses.length} suffix=" Active" />}
+          </div>
+          <p className="text-xs text-indigo-200/60 mt-1">Batches & Subject Groups</p>
         </div>
 
-        <div className="bg-white p-5 border border-gray-200 rounded-2xl shadow-sm">
+        <div className="glass-card p-5">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-gray-500">Exams Authored</span>
-            <BookOpen className="w-5 h-5 text-red-600" />
+            <span className="text-xs font-semibold text-indigo-300">Exams Authored</span>
+            <BookOpen className="w-5 h-5 text-amber-400" />
           </div>
-          <div className="text-3xl font-bold text-gray-900">
-            {loading ? '...' : `${statsData?.publishedCount || 0} Published`}
+          <div className="text-3xl font-extrabold text-amber-400 font-mono">
+            {loading ? '...' : <AnimatedCounter value={statsData?.publishedCount || 0} suffix=" Published" />}
           </div>
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-indigo-200/60 mt-1">
             {loading ? '...' : `${statsData?.examsCount || 0} total papers created`}
           </p>
         </div>
 
-        <div className="bg-white p-5 border border-gray-200 rounded-2xl shadow-sm">
+        <div className="glass-card p-5">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-gray-500">Total Submissions</span>
-            <CheckSquare className="w-5 h-5 text-emerald-600" />
+            <span className="text-xs font-semibold text-indigo-300">Total Submissions</span>
+            <CheckSquare className="w-5 h-5 text-teal-400" />
           </div>
-          <div className="text-3xl font-bold text-emerald-700">
-            {loading ? '...' : `${statsData?.totalSubmissions || 0} Evaluated`}
+          <div className="text-3xl font-extrabold text-teal-400 font-mono">
+            {loading ? '...' : <AnimatedCounter value={statsData?.totalSubmissions || 0} suffix=" Evaluated" />}
           </div>
-          <p className="text-xs text-gray-500 mt-1">Submissions evaluated</p>
+          <p className="text-xs text-indigo-200/60 mt-1">Submissions evaluated</p>
         </div>
 
-        <div className="bg-white p-5 border border-gray-200 rounded-2xl shadow-sm">
+        <div className="glass-card p-5">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-gray-500">Active Students</span>
-            <Users className="w-5 h-5 text-red-600" />
+            <span className="text-xs font-semibold text-indigo-300">Active Students</span>
+            <Users className="w-5 h-5 text-amber-400" />
           </div>
-          <div className="text-3xl font-bold text-red-600">
-            {loading ? '...' : `${statsData?.activeStudentsCount || 0} Candidates`}
+          <div className="text-3xl font-extrabold text-amber-400 font-mono">
+            {loading ? '...' : <AnimatedCounter value={statsData?.activeStudentsCount || 0} suffix=" Candidates" />}
           </div>
-          <p className="text-xs text-gray-500 mt-1">Enrolled across courses</p>
+          <p className="text-xs text-indigo-200/60 mt-1">Enrolled across courses</p>
         </div>
 
       </div>
 
       {/* Courses & Batches Section */}
-      <div className="bg-white p-6 border border-gray-200 rounded-2xl shadow-md space-y-4">
-        <div className="flex items-center justify-between border-b border-gray-200 pb-3">
+      <div className="glass-card p-6 space-y-4">
+        <div className="flex items-center justify-between border-b border-indigo-900/60 pb-3">
           <div className="flex items-center gap-2">
-            <Layers className="w-5 h-5 text-red-600" />
-            <h3 className="text-lg font-bold text-gray-900">My Courses & Batches</h3>
+            <Layers className="w-5 h-5 text-amber-400" />
+            <h3 className="text-lg font-bold text-white">My Courses & Batches</h3>
           </div>
           <button
             onClick={() => setShowCourseModal(true)}
-            className="text-xs font-semibold text-red-600 hover:text-red-700 hover:underline flex items-center gap-1"
+            className="text-xs font-semibold text-amber-400 hover:underline flex items-center gap-1"
           >
             + Add New Course
           </button>
         </div>
 
         {coursesLoading ? (
-          <div className="py-8 text-center text-xs text-gray-500">Loading courses...</div>
+          <BrandedLoader message="Loading courses..." />
         ) : courses.length === 0 ? (
-          <div className="py-10 text-center space-y-3 bg-gray-50 border border-dashed border-gray-200 rounded-xl p-6">
-            <Layers className="w-8 h-8 text-gray-300 mx-auto" />
+          <div className="py-10 text-center space-y-3 bg-indigo-950/40 border border-dashed border-indigo-900/60 rounded-xl p-6">
+            <Layers className="w-8 h-8 text-indigo-400/60 mx-auto" />
             <div>
-              <h4 className="text-xs font-semibold text-gray-800">No Courses Created Yet</h4>
-              <p className="text-xs text-gray-500 max-w-sm mx-auto mt-1">
+              <h4 className="text-xs font-semibold text-white">No Courses Created Yet</h4>
+              <p className="text-xs text-indigo-200/70 max-w-sm mx-auto mt-1">
                 Create a course to auto-generate a shareable <strong>Enrollment Code</strong> for your students.
               </p>
             </div>
             <button
               onClick={() => setShowCourseModal(true)}
-              className="px-4 py-2 rounded-xl bg-red-600 text-white text-xs font-semibold hover:bg-red-700 shadow-sm"
+              className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-indigo-950 font-bold text-xs shadow-sm"
             >
               + Create First Course
             </button>
@@ -376,24 +374,24 @@ export default function TeacherDashboard() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {courses.map((c) => (
-              <div key={c._id} className="p-5 rounded-2xl bg-gray-50 border border-gray-200 space-y-3 relative hover:border-red-300 transition-colors">
+              <div key={c._id} className="p-5 rounded-2xl bg-indigo-950/60 border border-indigo-900/60 space-y-3 relative hover:border-amber-500/40 transition-colors">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <h4 className="text-sm font-bold text-gray-900">{c.title}</h4>
-                    <p className="text-xs text-gray-500 line-clamp-1 mt-0.5">{c.description || 'No description provided'}</p>
+                    <h4 className="text-sm font-bold text-white">{c.title}</h4>
+                    <p className="text-xs text-indigo-200/70 line-clamp-1 mt-0.5">{c.description || 'No description provided'}</p>
                   </div>
-                  <span className="px-2 py-0.5 rounded-md bg-red-50 text-red-600 border border-red-200 text-[10px] font-mono font-bold">
+                  <span className="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/30 text-[10px] font-mono font-bold">
                     {c.examCount || 0} Exams
                   </span>
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-white border border-gray-200 flex items-center justify-between text-xs">
-                  <span className="text-gray-500 text-[11px]">Enrollment Code:</span>
-                  <div className="flex items-center gap-1.5 font-mono font-bold text-red-600">
+                <div className="p-2.5 rounded-xl bg-indigo-900/40 border border-indigo-700/50 flex items-center justify-between text-xs">
+                  <span className="text-indigo-300 text-[11px]">Enrollment Code:</span>
+                  <div className="flex items-center gap-1.5 font-mono font-bold text-amber-400">
                     <span>{c.enrollmentCode}</span>
                     <button
                       onClick={() => handleCopyCode(c.enrollmentCode)}
-                      className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-red-600 transition-colors"
+                      className="p-1 rounded hover:bg-indigo-800/50 text-indigo-300 hover:text-amber-400 transition-colors"
                       title="Copy Code"
                     >
                       <Copy className="w-3.5 h-3.5" />
@@ -401,15 +399,15 @@ export default function TeacherDashboard() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-1 border-t border-gray-200 text-xs">
-                  <span className="text-gray-500 text-[11px] flex items-center gap-1">
-                    <Users className="w-3.5 h-3.5 text-gray-400" />
+                <div className="flex items-center justify-between pt-1 border-t border-indigo-900/60 text-xs">
+                  <span className="text-indigo-200/70 text-[11px] flex items-center gap-1">
+                    <Users className="w-3.5 h-3.5 text-indigo-400" />
                     {c.studentCount || (c.students ? c.students.length : 0)} Students
                   </span>
 
                   <button
                     onClick={() => handleViewCourseDetails(c)}
-                    className="px-3 py-1 rounded-lg bg-white border border-gray-300 text-gray-700 hover:text-red-600 hover:border-red-300 font-medium text-[11px] transition-all"
+                    className="px-3 py-1 rounded-lg bg-indigo-900/40 border border-amber-500/20 text-indigo-200 hover:text-amber-300 hover:border-amber-400 font-medium text-[11px] transition-all"
                   >
                     View Students & Details
                   </button>
@@ -424,35 +422,35 @@ export default function TeacherDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         
         {/* Authored Exams */}
-        <div className="bg-white p-6 border border-gray-200 rounded-2xl shadow-md space-y-4 flex flex-col justify-between">
+        <div className="glass-card p-6 space-y-4 flex flex-col justify-between">
           <div>
-            <div className="flex items-center justify-between border-b border-gray-200 pb-3 mb-4">
+            <div className="flex items-center justify-between border-b border-indigo-900/60 pb-3 mb-4">
               <div className="flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-red-600" />
-                <h3 className="text-base font-semibold text-gray-900">Authored Examinations</h3>
+                <BookOpen className="w-4 h-4 text-amber-400" />
+                <h3 className="text-base font-semibold text-white">Authored Examinations</h3>
               </div>
-              <span className="text-xs text-gray-500 font-mono">{exams.length} Papers</span>
+              <span className="text-xs text-indigo-300 font-mono">{exams.length} Papers</span>
             </div>
 
             {loading ? (
-              <div className="py-8 text-center text-xs text-gray-500">Loading exams...</div>
+              <BrandedLoader message="Loading exams..." />
             ) : exams.length === 0 ? (
-              <div className="py-8 text-center text-xs text-gray-500">No exams authored yet.</div>
+              <div className="py-8 text-center text-xs text-indigo-300/60">No exams authored yet.</div>
             ) : (
               <div className="space-y-3">
                 {exams.map((ex) => (
-                  <div key={ex._id} className="p-3.5 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-between gap-3">
+                  <div key={ex._id} className="p-3.5 rounded-xl bg-indigo-950/60 border border-indigo-900/60 flex items-center justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-mono text-red-600 font-bold uppercase">{ex.code}</span>
+                        <span className="text-[10px] font-mono text-amber-400 font-bold uppercase">{ex.code}</span>
                         {ex.course && (
-                          <span className="text-[10px] bg-red-50 border border-red-200 text-red-700 font-semibold px-1.5 py-0.5 rounded">
+                          <span className="text-[10px] bg-amber-500/10 border border-amber-500/30 text-amber-300 font-semibold px-1.5 py-0.5 rounded">
                             {ex.course.title || 'Course'}
                           </span>
                         )}
                       </div>
-                      <h4 className="text-xs font-semibold text-gray-900 line-clamp-1 mt-0.5">{ex.title}</h4>
-                      <span className="text-[11px] text-gray-500">
+                      <h4 className="text-xs font-semibold text-white line-clamp-1 mt-0.5">{ex.title}</h4>
+                      <span className="text-[11px] text-indigo-200/70">
                         {ex.durationMinutes || ex.duration} mins | {ex.questions?.length || 0} Questions | Pass: {ex.passingMarks} pts
                       </span>
                     </div>
@@ -460,13 +458,13 @@ export default function TeacherDashboard() {
                     <div className="flex items-center gap-1.5 flex-shrink-0">
                       <Link
                         to={`/exam-builder/${ex._id}`}
-                        className="px-3 py-1.5 rounded-lg bg-white border border-gray-300 text-gray-700 hover:text-red-700 hover:border-red-300 text-xs font-medium transition-all"
+                        className="px-3 py-1.5 rounded-lg bg-indigo-900/40 border border-indigo-700/50 text-indigo-200 hover:text-amber-300 hover:border-amber-400 text-xs font-medium transition-all"
                       >
                         Edit
                       </Link>
                       <button
                         onClick={() => setDeleteTargetExam(ex)}
-                        className="p-1.5 rounded-lg bg-white border border-gray-300 text-red-600 hover:text-white hover:bg-red-600 hover:border-red-600 text-xs font-medium transition-all cursor-pointer"
+                        className="p-1.5 rounded-lg bg-indigo-900/40 border border-indigo-700/50 text-rose-400 hover:text-white hover:bg-rose-500 hover:border-rose-500 text-xs font-medium transition-all cursor-pointer"
                         title="Delete Exam"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -478,65 +476,74 @@ export default function TeacherDashboard() {
             )}
           </div>
 
-          <div className="pt-4 border-t border-gray-200">
+          <div className="pt-4 border-t border-indigo-900/60">
             <Link
               to="/exam-builder"
-              className="w-full py-2.5 rounded-xl bg-gray-50 hover:bg-red-50 text-xs font-semibold text-gray-700 hover:text-red-700 flex items-center justify-center gap-1.5 transition-all border border-gray-200"
+              className="w-full py-2.5 rounded-xl bg-indigo-900/40 hover:bg-amber-500/10 text-xs font-semibold text-indigo-200 hover:text-amber-300 flex items-center justify-center gap-1.5 transition-all border border-amber-500/20"
             >
-              <PlusCircle className="w-3.5 h-3.5 text-red-600" />
+              <PlusCircle className="w-3.5 h-3.5 text-amber-400" />
               <span>Launch Exam Builder Studio</span>
             </Link>
           </div>
         </div>
 
         {/* Recent Activity */}
-        <div className="bg-white p-6 border border-gray-200 rounded-2xl shadow-md space-y-4 flex flex-col justify-between">
+        <div className="glass-card p-6 space-y-4 flex flex-col justify-between">
           <div>
-            <div className="flex items-center justify-between border-b border-gray-200 pb-3 mb-4">
+            <div className="flex items-center justify-between border-b border-indigo-900/60 pb-3 mb-4">
               <div className="flex items-center gap-2">
-                <BarChart3 className="w-4 h-4 text-red-600" />
-                <h3 className="text-base font-semibold text-gray-900">Recent Candidate Activity</h3>
+                <BarChart3 className="w-4 h-4 text-amber-400" />
+                <h3 className="text-base font-semibold text-white">Recent Candidate Activity</h3>
               </div>
-              <span className="text-xs text-gray-500 font-mono">{recentActivity.length} Recent</span>
+              <span className="text-xs text-indigo-300 font-mono">{recentActivity.length} Recent</span>
             </div>
 
             {loading ? (
-              <div className="py-8 text-center text-xs text-gray-500">Loading activity...</div>
+              <BrandedLoader message="Loading candidate activity..." />
             ) : recentActivity.length === 0 ? (
-              <div className="py-8 text-center text-xs text-gray-500">No recent candidate submissions.</div>
+              <div className="py-8 text-center text-xs text-indigo-300/60">No recent candidate submissions.</div>
             ) : (
               <div className="space-y-3">
                 {recentActivity.map((act) => (
-                  <div key={act._id} className="p-3.5 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-between gap-3">
+                  <div key={act._id} className="p-3.5 rounded-xl bg-indigo-950/60 border border-indigo-900/60 flex items-center justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-mono text-red-600 font-bold uppercase">{act.examCode}</span>
-                        <h4 className="text-xs font-semibold text-gray-900">{act.studentName}</h4>
+                        <span className="text-[10px] font-mono text-amber-400 font-bold uppercase">{act.examCode}</span>
+                        <h4 className="text-xs font-semibold text-white">{act.studentName}</h4>
                       </div>
-                      <span className="text-[11px] text-gray-500 block">
+                      <span className="text-[11px] text-indigo-200/70 block">
                         Score: {act.score} / {act.totalMarks} | {new Date(act.submittedAt).toLocaleDateString()}
                       </span>
                     </div>
 
-                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border ${
-                      act.isPassed 
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        : 'bg-rose-50 text-rose-700 border-rose-200'
-                    }`}>
-                      {act.isPassed ? 'Passed' : 'Failed'}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border ${
+                        act.isPassed 
+                          ? 'bg-teal-500/15 text-teal-300 border-teal-500/30'
+                          : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                      }`}>
+                        {act.isPassed ? 'Passed' : 'Failed'}
+                      </span>
+                      <Link
+                        to={`/attempts/${act._id}/review`}
+                        className="p-1.5 rounded-lg bg-indigo-900/40 border border-indigo-700/50 text-indigo-200 hover:text-amber-300 text-xs font-medium transition-all"
+                        title="View Answer Sheet"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                      </Link>
+                    </div>
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          <div className="pt-4 border-t border-gray-200">
+          <div className="pt-4 border-t border-indigo-900/60">
             <Link
               to="/grading"
-              className="w-full py-2.5 rounded-xl bg-gray-50 hover:bg-red-50 text-xs font-semibold text-gray-700 hover:text-red-700 flex items-center justify-center gap-1.5 transition-all border border-gray-200"
+              className="w-full py-2.5 rounded-xl bg-indigo-900/40 hover:bg-amber-500/10 text-xs font-semibold text-indigo-200 hover:text-amber-300 flex items-center justify-center gap-1.5 transition-all border border-amber-500/20"
             >
-              <FileCheck className="w-3.5 h-3.5 text-red-600" />
+              <FileCheck className="w-3.5 h-3.5 text-amber-400" />
               <span>Review Essay Grading Queue</span>
             </Link>
           </div>
@@ -546,45 +553,45 @@ export default function TeacherDashboard() {
 
       {/* Create Course Modal */}
       {showCourseModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50 backdrop-blur-sm">
-          <div className="bg-white max-w-md w-full p-6 space-y-6 border border-gray-200 rounded-2xl shadow-xl relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-950/70 backdrop-blur-sm">
+          <div className="glass-card max-w-md w-full p-6 space-y-6 border border-amber-500/20 rounded-2xl relative shadow-2xl">
             <button
               onClick={() => {
                 setShowCourseModal(false);
                 setCreatedCourseCode(null);
               }}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 p-1"
+              className="absolute top-4 right-4 text-indigo-300/60 hover:text-white p-1"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-3 border-b border-gray-200 pb-4">
-              <div className="p-2.5 rounded-xl bg-red-50 text-red-600 border border-red-200">
+            <div className="flex items-center gap-3 border-b border-indigo-900/60 pb-4">
+              <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400">
                 <Layers className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-gray-900">Create Course / Batch</h3>
-                <p className="text-xs text-gray-500">Auto-generates a unique enrollment code for students.</p>
+                <h3 className="text-lg font-bold text-white">Create Course / Batch</h3>
+                <p className="text-xs text-indigo-200/70">Auto-generates a unique enrollment code for students.</p>
               </div>
             </div>
 
             {createdCourseCode ? (
               <div className="space-y-4 text-center py-2">
-                <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs">
+                <div className="p-4 rounded-xl bg-teal-500/15 border border-teal-500/30 text-teal-300 text-xs">
                   🎉 Course created successfully! Share the code below with your students:
                 </div>
 
-                <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200 flex items-center justify-between">
-                  <span className="text-xs text-gray-500 font-semibold">Enrollment Code:</span>
+                <div className="p-4 rounded-2xl bg-indigo-950/80 border border-indigo-900/80 flex items-center justify-between">
+                  <span className="text-xs text-indigo-300 font-semibold">Enrollment Code:</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-2xl font-mono font-extrabold text-red-600 tracking-wider">
+                    <span className="text-2xl font-mono font-extrabold text-amber-400 tracking-wider">
                       {createdCourseCode}
                     </span>
                     <button
                       onClick={() => handleCopyCode(createdCourseCode)}
-                      className="p-2 rounded-lg bg-white border border-gray-300 text-gray-700 hover:text-red-600 text-xs font-semibold flex items-center gap-1 shadow-sm"
+                      className="p-2 rounded-lg bg-indigo-900/60 border border-amber-500/20 text-amber-300 hover:bg-amber-500/10 text-xs font-semibold flex items-center gap-1 shadow-sm"
                     >
-                      {copiedCode ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                      {copiedCode ? <Check className="w-4 h-4 text-teal-400" /> : <Copy className="w-4 h-4" />}
                       {copiedCode ? 'Copied' : 'Copy'}
                     </button>
                   </div>
@@ -595,7 +602,7 @@ export default function TeacherDashboard() {
                     setShowCourseModal(false);
                     setCreatedCourseCode(null);
                   }}
-                  className="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold text-xs shadow-md"
+                  className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-indigo-950 font-bold text-xs shadow-md"
                 >
                   Done
                 </button>
@@ -603,25 +610,25 @@ export default function TeacherDashboard() {
             ) : (
               <form onSubmit={handleCreateCourse} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Course Title *</label>
+                  <label className="block text-xs font-semibold text-indigo-200 mb-1">Course Title *</label>
                   <input
                     type="text"
                     required
                     placeholder="e.g. CS101 - Data Structures & Algorithms"
                     value={courseTitle}
                     onChange={(e) => setCourseTitle(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl bg-white border border-gray-300 text-gray-900 text-sm focus:border-red-600 focus:ring-1 focus:ring-red-600"
+                    className="w-full px-3 py-2.5 rounded-xl bg-indigo-950/60 border border-indigo-900/80 text-white placeholder-indigo-300/40 text-sm focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Description (Optional)</label>
+                  <label className="block text-xs font-semibold text-indigo-200 mb-1">Description (Optional)</label>
                   <textarea
                     rows={3}
                     placeholder="Brief course objectives and syllabus details..."
                     value={courseDescription}
                     onChange={(e) => setCourseDescription(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl bg-white border border-gray-300 text-gray-900 text-sm focus:border-red-600 focus:ring-1 focus:ring-red-600"
+                    className="w-full px-3 py-2.5 rounded-xl bg-indigo-950/60 border border-indigo-900/80 text-white placeholder-indigo-300/40 text-sm focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
                   />
                 </div>
 
@@ -629,13 +636,13 @@ export default function TeacherDashboard() {
                   <button
                     type="button"
                     onClick={() => setShowCourseModal(false)}
-                    className="w-1/2 py-2.5 rounded-xl bg-gray-100 text-gray-700 border border-gray-300 text-xs font-semibold"
+                    className="w-1/2 py-2.5 rounded-xl bg-indigo-900/40 text-indigo-200 border border-indigo-700/50 text-xs font-semibold"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="w-1/2 py-2.5 rounded-xl bg-red-600 text-white text-xs font-semibold hover:bg-red-700 shadow-md"
+                    className="w-1/2 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-indigo-950 text-xs font-bold shadow-md"
                   >
                     Generate Course Code
                   </button>
@@ -648,26 +655,26 @@ export default function TeacherDashboard() {
 
       {/* Course Details & Enrolled Students Modal */}
       {selectedCourse && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50 backdrop-blur-sm">
-          <div className="bg-white max-w-2xl w-full p-6 space-y-6 border border-gray-200 rounded-2xl shadow-xl relative max-h-[85vh] flex flex-col">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-950/70 backdrop-blur-sm">
+          <div className="glass-card max-w-2xl w-full p-6 space-y-6 border border-amber-500/20 rounded-2xl relative shadow-2xl max-h-[85vh] flex flex-col">
             <button
               onClick={() => setSelectedCourse(null)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 p-1"
+              className="absolute top-4 right-4 text-indigo-300/60 hover:text-white p-1"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-3 border-b border-gray-200 pb-4">
-              <div className="p-2.5 rounded-xl bg-red-50 text-red-600 border border-red-200">
+            <div className="flex items-center gap-3 border-b border-indigo-900/60 pb-4">
+              <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400">
                 <Users className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-gray-900">{selectedCourse.title}</h3>
-                <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
-                  <span>Enrollment Code: <strong className="font-mono text-red-600">{selectedCourse.enrollmentCode}</strong></span>
+                <h3 className="text-lg font-bold text-white">{selectedCourse.title}</h3>
+                <div className="flex items-center gap-2 text-xs text-indigo-200/70 mt-0.5">
+                  <span>Enrollment Code: <strong className="font-mono text-amber-400">{selectedCourse.enrollmentCode}</strong></span>
                   <button
                     onClick={() => handleCopyCode(selectedCourse.enrollmentCode)}
-                    className="text-red-600 hover:underline flex items-center gap-1 ml-1"
+                    className="text-amber-400 hover:underline flex items-center gap-1 ml-1"
                   >
                     <Copy className="w-3 h-3" /> Copy Code
                   </button>
@@ -676,28 +683,28 @@ export default function TeacherDashboard() {
             </div>
 
             <div className="flex-grow overflow-y-auto space-y-4 pr-1">
-              <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+              <h4 className="text-xs font-bold text-amber-400 uppercase tracking-wider">
                 Enrolled Students ({courseStudents.length})
               </h4>
 
               {studentsLoading ? (
-                <div className="py-8 text-center text-xs text-gray-500">Loading enrolled students...</div>
+                <BrandedLoader message="Loading enrolled students..." />
               ) : courseStudents.length === 0 ? (
-                <div className="py-8 text-center text-xs text-gray-500 bg-gray-50 rounded-xl border border-gray-200">
-                  No students enrolled in this course yet. Share code <strong className="font-mono text-red-600">{selectedCourse.enrollmentCode}</strong> with students.
+                <div className="py-8 text-center text-xs text-indigo-300/60 bg-indigo-950/60 rounded-xl border border-indigo-900/60">
+                  No students enrolled in this course yet. Share code <strong className="font-mono text-amber-400">{selectedCourse.enrollmentCode}</strong> with students.
                 </div>
               ) : (
                 <div className="space-y-2">
                   {courseStudents.map((st) => (
-                    <div key={st._id} className="p-3.5 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-between gap-3">
+                    <div key={st._id} className="p-3.5 rounded-xl bg-indigo-950/60 border border-indigo-900/60 flex items-center justify-between gap-3">
                       <div>
-                        <h5 className="text-xs font-bold text-gray-900">{st.name}</h5>
-                        <span className="text-[11px] text-gray-500">{st.email}</span>
+                        <h5 className="text-xs font-bold text-white">{st.name}</h5>
+                        <span className="text-[11px] text-indigo-200/70">{st.email}</span>
                       </div>
 
                       <button
                         onClick={() => handleRemoveStudent(selectedCourse._id, st._id)}
-                        className="px-2.5 py-1 rounded-lg bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 text-[11px] font-semibold flex items-center gap-1 transition-all"
+                        className="px-2.5 py-1 rounded-lg bg-indigo-900/40 border border-rose-500/30 text-rose-300 hover:bg-rose-500/20 text-[11px] font-semibold flex items-center gap-1 transition-all"
                       >
                         <Trash2 className="w-3.5 h-3.5" /> Remove
                       </button>
@@ -707,10 +714,10 @@ export default function TeacherDashboard() {
               )}
             </div>
 
-            <div className="pt-3 border-t border-gray-200 flex justify-end">
+            <div className="pt-3 border-t border-indigo-900/60 flex justify-end">
               <button
                 onClick={() => setSelectedCourse(null)}
-                className="px-5 py-2 rounded-xl bg-gray-900 text-white font-semibold text-xs"
+                className="px-5 py-2 rounded-xl bg-indigo-900/40 text-white font-semibold text-xs border border-indigo-700/50"
               >
                 Close
               </button>
@@ -721,30 +728,30 @@ export default function TeacherDashboard() {
 
       {/* Quick Create Exam Modal */}
       {showCreateExamModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50 backdrop-blur-sm">
-          <div className="bg-white max-w-md w-full p-6 space-y-6 border border-gray-200 rounded-2xl shadow-xl relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-950/70 backdrop-blur-sm">
+          <div className="glass-card max-w-md w-full p-6 space-y-6 border border-amber-500/20 rounded-2xl relative shadow-2xl">
             <button
               onClick={() => setShowCreateExamModal(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 p-1"
+              className="absolute top-4 right-4 text-indigo-300/60 hover:text-white p-1"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-3 border-b border-gray-200 pb-4">
-              <div className="p-2.5 rounded-xl bg-red-50 text-red-600 border border-red-200">
+            <div className="flex items-center gap-3 border-b border-indigo-900/60 pb-4">
+              <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400">
                 <Sparkles className="w-5 h-5" />
               </div>
-              <h3 className="text-lg font-bold text-gray-900">Create New Exam</h3>
+              <h3 className="text-lg font-bold text-white">Create New Exam</h3>
             </div>
 
             <form onSubmit={handleCreateExam} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Select Course / Batch *</label>
+                <label className="block text-xs font-semibold text-indigo-200 mb-1">Select Course / Batch *</label>
                 <select
                   required
                   value={selectedExamCourse}
                   onChange={(e) => setSelectedExamCourse(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl bg-white border border-gray-300 text-gray-900 text-sm focus:border-red-600 focus:ring-1 focus:ring-red-600"
+                  className="w-full px-3 py-2.5 rounded-xl bg-indigo-950/60 border border-indigo-900/80 text-white text-sm focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
                 >
                   <option value="">-- Choose Course --</option>
                   {courses.map((c) => (
@@ -756,37 +763,37 @@ export default function TeacherDashboard() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Exam Title *</label>
+                <label className="block text-xs font-semibold text-indigo-200 mb-1">Exam Title *</label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. Advanced Operating Systems"
                   value={examTitle}
                   onChange={(e) => setExamTitle(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-white border border-gray-300 text-gray-900 text-sm focus:border-red-600 focus:ring-1 focus:ring-red-600"
+                  className="w-full px-3 py-2 rounded-xl bg-indigo-950/60 border border-indigo-900/80 text-white text-sm focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Exam Code (Unique) *</label>
+                <label className="block text-xs font-semibold text-indigo-200 mb-1">Exam Code (Unique) *</label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. OS401"
                   value={examCode}
                   onChange={(e) => setExamCode(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-white border border-gray-300 text-gray-900 text-sm focus:border-red-600 focus:ring-1 focus:ring-red-600 uppercase font-mono"
+                  className="w-full px-3 py-2 rounded-xl bg-indigo-950/60 border border-indigo-900/80 text-amber-400 text-sm font-mono uppercase focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Duration (Minutes)</label>
+                <label className="block text-xs font-semibold text-indigo-200 mb-1">Duration (Minutes)</label>
                 <input
                   type="number"
                   required
                   value={examDuration}
                   onChange={(e) => setExamDuration(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-white border border-gray-300 text-gray-900 text-sm focus:border-red-600 focus:ring-1 focus:ring-red-600"
+                  className="w-full px-3 py-2 rounded-xl bg-indigo-950/60 border border-indigo-900/80 text-white text-sm focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
                 />
               </div>
 
@@ -794,15 +801,15 @@ export default function TeacherDashboard() {
                 <button
                   type="button"
                   onClick={() => setShowCreateExamModal(false)}
-                  className="w-1/2 py-2 rounded-xl bg-gray-100 text-gray-700 border border-gray-300 text-xs font-semibold"
+                  className="w-1/2 py-2.5 rounded-xl bg-indigo-900/40 text-indigo-200 border border-indigo-700/50 text-xs font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="w-1/2 py-2 rounded-xl bg-red-600 text-white text-xs font-semibold hover:bg-red-700 shadow-md"
+                  className="w-1/2 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-indigo-950 text-xs font-bold shadow-md"
                 >
-                  Publish Exam
+                  Create & Launch Studio
                 </button>
               </div>
             </form>
@@ -810,16 +817,19 @@ export default function TeacherDashboard() {
         </div>
       )}
 
-      {/* Delete Exam Modal */}
-      <DeleteExamModal
-        exam={deleteTargetExam}
-        isOpen={!!deleteTargetExam}
-        onClose={() => setDeleteTargetExam(null)}
-        onSuccess={(msg) => {
-          alert(msg || 'Exam deleted successfully.');
-          fetchTeacherData();
-        }}
-      />
+      {/* Delete Exam Confirmation Modal */}
+      {deleteTargetExam && (
+        <DeleteExamModal
+          exam={deleteTargetExam}
+          isOpen={!!deleteTargetExam}
+          onClose={() => setDeleteTargetExam(null)}
+          onSuccess={(msg) => {
+            alert(msg || 'Exam deleted successfully.');
+            setDeleteTargetExam(null);
+            fetchTeacherData();
+          }}
+        />
+      )}
 
     </div>
   );

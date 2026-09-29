@@ -1,31 +1,31 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { safeFetchJson, getApiUrl } from '../utils/api';
+import BrandedLoader from '../components/BrandedLoader';
 import { 
   HelpCircle, 
   Plus, 
-  Upload, 
-  Download, 
   Search, 
-  Filter, 
   Edit3, 
   Trash2, 
-  CheckCircle2, 
   X, 
-  Sparkles,
-  Layers,
+  FileText, 
   AlertCircle,
-  FileText,
-  AlertTriangle,
+  FolderPlus,
+  BookMarked,
+  Tag,
   Check,
-  FileCode
+  ChevronDown,
+  Layers
 } from 'lucide-react';
 
 export default function QuestionBank() {
   const { token } = useAuth();
   
   const [questions, setQuestions] = useState([]);
+  const [subjects, setSubjects] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [subjectsLoading, setSubjectsLoading] = useState(false);
   const [error, setError] = useState(null);
 
   // Filters
@@ -39,23 +39,30 @@ export default function QuestionBank() {
   const [editingQuestion, setEditingQuestion] = useState(null);
   const [formError, setFormError] = useState(null);
 
+  // Manage Subjects Modal
+  const [showSubjectModal, setShowSubjectModal] = useState(false);
+  const [newSubjectInput, setNewSubjectInput] = useState('');
+  const [subjectError, setSubjectError] = useState(null);
+  const [subjectSubmitting, setSubjectSubmitting] = useState(false);
+
+  // Inline Subject Creation inside Question Form
+  const [showInlineNewSubject, setShowInlineNewSubject] = useState(false);
+  const [inlineSubjectInput, setInlineSubjectInput] = useState('');
+
   // Helper to map legacy/parsed correctAnswer string to matching option text
   const resolveInitialCorrectAnswer = (q) => {
     if (!q || !q.correctAnswer) return '';
     const rawAns = Array.isArray(q.correctAnswer) ? q.correctAnswer.join(', ') : String(q.correctAnswer).trim();
     if (!q.options || q.options.length === 0) return rawAns;
 
-    // Exact match in options
     if (q.options.includes(rawAns)) return rawAns;
 
-    // Check letter label match e.g. "Option A", "A", "B)"
     const letterMatch = rawAns.match(/^(?:Option\s*)?([A-D])\)?$/i);
     if (letterMatch) {
       const idx = letterMatch[1].toUpperCase().charCodeAt(0) - 65;
       if (q.options[idx]) return q.options[idx];
     }
 
-    // Check numeric index e.g. "0", "1"
     if (/^\d+$/.test(rawAns)) {
       const idx = parseInt(rawAns, 10);
       if (q.options[idx]) return q.options[idx];
@@ -86,6 +93,124 @@ export default function QuestionBank() {
   const [pdfImporting, setPdfImporting] = useState(false);
   const [pdfParsedQuestions, setPdfParsedQuestions] = useState([]);
   const [pdfParseMethod, setPdfParseMethod] = useState('');
+
+  // Fetch Subjects
+  const fetchSubjects = useCallback(async () => {
+    setSubjectsLoading(true);
+    try {
+      const { ok, data } = await safeFetchJson('/api/subjects', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (ok && data?.success) {
+        setSubjects(data.data || []);
+      }
+    } catch (err) {
+      console.error('[QuestionBank] Failed to load subjects:', err);
+    } finally {
+      setSubjectsLoading(false);
+    }
+  }, [token]);
+
+  // Fetch Questions
+  const fetchQuestions = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const queryParams = new URLSearchParams();
+      if (search) queryParams.append('search', search);
+      if (subjectFilter !== 'All') queryParams.append('subject', subjectFilter);
+      if (difficultyFilter !== 'All') queryParams.append('difficulty', difficultyFilter);
+      if (typeFilter !== 'All') queryParams.append('type', typeFilter);
+
+      const { ok, data } = await safeFetchJson(`/api/questions?${queryParams.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (ok && data?.success) {
+        setQuestions(data.data || []);
+      } else {
+        throw new Error(data?.message || 'Failed to fetch questions');
+      }
+    } catch (err) {
+      console.error('[QuestionBank] Error:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [token, search, subjectFilter, difficultyFilter, typeFilter]);
+
+  useEffect(() => {
+    fetchSubjects();
+  }, [fetchSubjects]);
+
+  useEffect(() => {
+    fetchQuestions();
+  }, [fetchQuestions]);
+
+  // Handle Create Subject
+  const handleAddSubject = async (nameToCreate) => {
+    const targetName = (nameToCreate || newSubjectInput).trim();
+    if (!targetName) return null;
+
+    setSubjectError(null);
+    setSubjectSubmitting(true);
+    try {
+      const { ok, data } = await safeFetchJson('/api/subjects', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ name: targetName }),
+      });
+
+      if (ok && data?.success) {
+        setNewSubjectInput('');
+        setInlineSubjectInput('');
+        setShowInlineNewSubject(false);
+        await fetchSubjects();
+        return data.data;
+      } else {
+        setSubjectError(data?.message || 'Failed to create subject');
+        return null;
+      }
+    } catch (err) {
+      setSubjectError('Error: ' + err.message);
+      return null;
+    } finally {
+      setSubjectSubmitting(false);
+    }
+  };
+
+  // Handle Delete Subject
+  const handleDeleteSubject = async (subjectObj, force = false) => {
+    if (!subjectObj) return;
+
+    try {
+      const url = `/api/subjects/${subjectObj._id}${force ? '?force=true' : ''}`;
+      const { ok, data } = await safeFetchJson(url, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (ok && data?.success) {
+        alert(data.message);
+        fetchSubjects();
+        fetchQuestions();
+      } else if (data?.requiresConfirmation) {
+        const confirmDelete = window.confirm(
+          `Subject "${subjectObj.name}" is currently assigned to ${data.questionsCount} question(s).\n\nDeleting it will reassign these questions to "General". Do you want to proceed?`
+        );
+        if (confirmDelete) {
+          handleDeleteSubject(subjectObj, true);
+        }
+      } else {
+        alert(data?.message || 'Error deleting subject');
+      }
+    } catch (err) {
+      alert('Failed to delete subject: ' + err.message);
+    }
+  };
 
   // Helper to cleanly reset Document upload modal state
   const resetPdfModalState = () => {
@@ -142,6 +267,7 @@ export default function QuestionBank() {
         const parsedWithResolvedAnswers = (data.data || []).map(q => ({
           ...q,
           correctAnswer: resolveInitialCorrectAnswer(q),
+          subject: q.subject || q.sectionTopic || 'General',
         }));
         setPdfParsedQuestions(parsedWithResolvedAnswers);
         setPdfParseMethod(data.parseMethod || 'fixed-template');
@@ -176,7 +302,6 @@ export default function QuestionBank() {
         if (q.tempId !== tempId) return q;
         const updated = { ...q, [field]: value };
         
-        // Handle options when switching type
         if (field === 'type') {
           if (value === 'true-false') {
             updated.options = ['True', 'False'];
@@ -192,7 +317,6 @@ export default function QuestionBank() {
           }
         }
 
-        // Recalculate warnings
         const warnings = [];
         const qText = updated.questionText || '';
         if (!qText || qText.trim().length < 3) {
@@ -271,30 +395,31 @@ export default function QuestionBank() {
     );
   };
 
-  // Remove question card
+  // Remove question card from import preview
   const removePdfQuestionCard = (tempId) => {
     setPdfParsedQuestions(prev => prev.filter(q => q.tempId !== tempId));
   };
 
-  // Topic section bulk tagging state
+  // Topic section bulk tagging state for PDF import
   const [selectedTopicSection, setSelectedTopicSection] = useState('All');
   const [bulkSubjectValue, setBulkSubjectValue] = useState('');
 
   const handleApplyBulkSubjectToTopic = () => {
     if (!bulkSubjectValue.trim()) {
-      alert('Please enter a subject name to apply!');
+      alert('Please select or enter a subject name!');
       return;
     }
+    const cleanVal = bulkSubjectValue.trim();
     setPdfParsedQuestions(prev =>
       prev.map(q => {
         const topicName = q.sectionTopic || q.subject || 'General';
         if (selectedTopicSection === 'All' || topicName === selectedTopicSection) {
-          return { ...q, subject: bulkSubjectValue.trim(), sectionTopic: bulkSubjectValue.trim() };
+          return { ...q, subject: cleanVal, sectionTopic: cleanVal };
         }
         return q;
       })
     );
-    alert(`Applied subject "${bulkSubjectValue.trim()}" to questions!`);
+    alert(`Applied subject "${cleanVal}" to selected questions!`);
   };
 
   // Confirm and save selected parsed questions to DB
@@ -344,6 +469,7 @@ export default function QuestionBank() {
         setPdfParsedQuestions([]);
         setPdfFile(null);
         setPdfFileName('');
+        fetchSubjects();
         fetchQuestions();
       } else {
         alert(data?.message || 'Error saving questions to Question Bank.');
@@ -355,50 +481,19 @@ export default function QuestionBank() {
     }
   };
 
-  // Download Template in chosen format
+  // Download Template
   const downloadTemplate = (format = 'pdf') => {
     window.open(`/api/questions/template?format=${format}`, '_blank');
   };
-
-  // Fetch Questions
-  const fetchQuestions = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const queryParams = new URLSearchParams();
-      if (search) queryParams.append('search', search);
-      if (subjectFilter !== 'All') queryParams.append('subject', subjectFilter);
-      if (difficultyFilter !== 'All') queryParams.append('difficulty', difficultyFilter);
-      if (typeFilter !== 'All') queryParams.append('type', typeFilter);
-
-      const { ok, data } = await safeFetchJson(`/api/questions?${queryParams.toString()}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (ok && data?.success) {
-        setQuestions(data.data || []);
-      } else {
-        throw new Error(data?.message || 'Failed to fetch questions');
-      }
-    } catch (err) {
-      console.error('[QuestionBank] Error:', err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [token, search, subjectFilter, difficultyFilter, typeFilter]);
-
-  useEffect(() => {
-    fetchQuestions();
-  }, [fetchQuestions]);
 
   // Handle Form Open (New / Edit)
   const openCreateModal = () => {
     setEditingQuestion(null);
     setFormError(null);
+    setShowInlineNewSubject(false);
+    setInlineSubjectInput('');
     const defaultOpts = ['Option A', 'Option B', 'Option C', 'Option D'];
+    const initialSubject = subjects.length > 0 ? subjects[0].name : 'General';
     setFormData({
       questionText: '',
       type: 'mcq-single',
@@ -407,7 +502,7 @@ export default function QuestionBank() {
       marks: 1,
       negativeMarks: 0,
       difficulty: 'medium',
-      subject: 'Computer Science',
+      subject: initialSubject,
     });
     setShowFormModal(true);
   };
@@ -415,6 +510,8 @@ export default function QuestionBank() {
   const openEditModal = (q) => {
     setEditingQuestion(q);
     setFormError(null);
+    setShowInlineNewSubject(false);
+    setInlineSubjectInput('');
     const resolvedOpts = Array.isArray(q.options) && q.options.length > 0 ? [...q.options] : ['Option A', 'Option B', 'Option C', 'Option D'];
     const resolvedAns = resolveInitialCorrectAnswer({ ...q, options: resolvedOpts });
 
@@ -431,31 +528,15 @@ export default function QuestionBank() {
     setShowFormModal(true);
   };
 
-  const handleTypeChange = (newType) => {
-    let newOptions = [...formData.options];
-    let newCorrect = formData.correctAnswer;
-
-    if (newType === 'mcq-single' || newType === 'mcq-multiple') {
-      if (!newOptions || newOptions.length < 2) {
-        newOptions = ['Option A', 'Option B', 'Option C', 'Option D'];
-      }
-      if (!newCorrect || !newOptions.includes(newCorrect)) {
-        newCorrect = newOptions[0] || '';
-      }
-    } else if (newType === 'true-false') {
-      newOptions = ['True', 'False'];
-      if (!['True', 'False'].includes(newCorrect)) {
-        newCorrect = 'True';
-      }
+  // Create subject inline from inside Question Form
+  const handleInlineSubjectCreate = async () => {
+    if (!inlineSubjectInput.trim()) return;
+    const created = await handleAddSubject(inlineSubjectInput);
+    if (created) {
+      setFormData(prev => ({ ...prev, subject: created.name }));
+      setShowInlineNewSubject(false);
+      setInlineSubjectInput('');
     }
-
-    setFormData({
-      ...formData,
-      type: newType,
-      options: newOptions,
-      correctAnswer: newCorrect,
-    });
-    setFormError(null);
   };
 
   // Submit Single Question Form (Create / Update)
@@ -498,6 +579,7 @@ export default function QuestionBank() {
       if (ok && data?.success) {
         alert(isEdit ? 'Question updated successfully!' : 'Question created successfully!');
         setShowFormModal(false);
+        fetchSubjects();
         fetchQuestions();
       } else {
         setFormError(data?.message || 'Error saving question');
@@ -517,6 +599,7 @@ export default function QuestionBank() {
       });
       if (ok && data?.success) {
         setQuestions(prev => prev.filter(q => q._id !== id));
+        fetchSubjects();
       } else {
         alert(data?.message || 'Error deleting question');
       }
@@ -528,12 +611,12 @@ export default function QuestionBank() {
   const getDifficultyBadge = (diff) => {
     switch (diff) {
       case 'easy':
-        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+        return 'bg-teal-500/10 text-teal-300 border-teal-500/20';
       case 'hard':
-        return 'bg-rose-50 text-rose-700 border-rose-200';
+        return 'bg-rose-500/10 text-rose-300 border-rose-500/20';
       case 'medium':
       default:
-        return 'bg-amber-50 text-amber-700 border-amber-200';
+        return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
     }
   };
 
@@ -548,45 +631,62 @@ export default function QuestionBank() {
       case 'short-answer':
         return 'Short Answer';
       case 'essay':
-        return 'Essay / Long Answer';
+        return 'Essay';
       default:
         return type;
     }
   };
 
-  const subjectsList = ['All', ...new Set(questions.map(q => q.subject || 'General'))];
+  // Combine subjects list with counts for tabs
+  const allSubjectNames = [...new Set([...subjects.map(s => s.name), ...questions.map(q => q.subject || 'General')])];
+
+  // Subject counts map
+  const subjectCounts = {};
+  questions.forEach(q => {
+    const sName = q.subject || 'General';
+    subjectCounts[sName] = (subjectCounts[sName] || 0) + 1;
+  });
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-200 pb-6">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-indigo-900/40 pb-6">
         <div>
           <div className="flex items-center gap-2">
-            <div className="p-2 rounded-xl bg-red-50 text-red-600 border border-red-200">
+            <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
               <HelpCircle className="w-6 h-6" />
             </div>
-            <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">Question Bank</h1>
+            <h1 className="text-3xl font-extrabold text-[#f4f4f8] tracking-tight">Question Bank</h1>
           </div>
-          <p className="text-gray-500 text-sm mt-1">
-            Create, categorize, filter, and bulk upload test questions for exams.
+          <p className="text-[#a5a3c9] text-sm mt-1">
+            Organize questions by Subject, manage categories, and bulk import test papers.
           </p>
         </div>
 
-        {/* Toolbar - Exactly Two Buttons */}
-        <div className="flex items-center gap-3">
+        {/* Action Toolbar */}
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => setShowSubjectModal(true)}
+            className="px-4 py-2.5 rounded-xl bg-indigo-950/80 border border-indigo-800/60 text-amber-400 hover:bg-indigo-900/40 text-xs font-semibold flex items-center gap-2 transition-all shadow-sm cursor-pointer"
+            title="Manage Subject Categories"
+          >
+            <FolderPlus className="w-4 h-4 text-amber-400" />
+            Manage Subjects ({subjects.length})
+          </button>
+
           <button
             onClick={() => setShowPdfModal(true)}
-            className="px-4 py-2.5 rounded-xl bg-red-600 text-white hover:bg-red-700 text-xs font-semibold flex items-center gap-2 transition-all shadow-md shadow-red-600/20 cursor-pointer"
+            className="px-4 py-2.5 rounded-xl bg-indigo-950/80 border border-amber-500/20 text-slate-200 hover:bg-indigo-900/40 text-xs font-semibold flex items-center gap-2 transition-all shadow-sm cursor-pointer"
             title="Extract & import questions from PDF or Word files"
           >
-            <FileText className="w-4 h-4" />
+            <FileText className="w-4 h-4 text-amber-400" />
             Import from PDF/Word
           </button>
 
           <button
             onClick={openCreateModal}
-            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 text-white text-xs font-semibold shadow-lg shadow-red-600/25 hover:scale-[1.02] transition-transform flex items-center gap-2 cursor-pointer"
+            className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-indigo-950 font-bold text-xs shadow-lg shadow-amber-500/20 hover:scale-[1.02] transition-transform flex items-center gap-2 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             Add Question
@@ -594,33 +694,57 @@ export default function QuestionBank() {
         </div>
       </div>
 
-      {/* Filter Bar */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        
-        {/* Search */}
+      {/* Subject Filter Tab Bar */}
+      <div className="glass-card p-2 rounded-2xl border border-amber-500/15 overflow-x-auto scrollbar-none flex items-center gap-1">
+        <button
+          onClick={() => setSubjectFilter('All')}
+          className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-2 ${
+            subjectFilter === 'All'
+              ? 'bg-amber-500 text-indigo-950 font-bold shadow-md shadow-amber-500/20'
+              : 'text-[#a5a3c9] hover:bg-indigo-900/40 hover:text-white'
+          }`}
+        >
+          <BookMarked className="w-3.5 h-3.5" />
+          All Subjects ({questions.length})
+        </button>
+
+        {allSubjectNames.map((subjName) => {
+          const count = subjectCounts[subjName] || 0;
+          const isSelected = subjectFilter === subjName;
+          return (
+            <button
+              key={subjName}
+              onClick={() => setSubjectFilter(subjName)}
+              className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-2 ${
+                isSelected
+                  ? 'bg-amber-500 text-indigo-950 font-bold shadow-md shadow-amber-500/20'
+                  : 'text-[#a5a3c9] hover:bg-indigo-900/40 hover:text-white'
+              }`}
+            >
+              <Tag className="w-3.5 h-3.5 opacity-80" />
+              <span>{subjName}</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                isSelected ? 'bg-indigo-950 text-amber-400' : 'bg-indigo-950 border border-indigo-800 text-slate-300'
+              }`}>
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Additional Secondary Filters */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* Search Input */}
         <div className="relative">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-[#a5a3c9] absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Search questions..."
+            placeholder="Search questions by keyword..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white border border-gray-200 text-gray-900 placeholder-gray-400 text-xs focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 shadow-sm"
+            className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-indigo-950/80 border border-indigo-800/60 text-white placeholder:text-[#a5a3c9] text-xs focus:outline-none focus:border-amber-400 shadow-sm"
           />
-        </div>
-
-        {/* Subject Filter */}
-        <div>
-          <select
-            value={subjectFilter}
-            onChange={(e) => setSubjectFilter(e.target.value)}
-            className="w-full px-4 py-2.5 rounded-xl bg-white border border-gray-200 text-gray-900 text-xs focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 shadow-sm cursor-pointer"
-          >
-            <option value="All">Subject: All</option>
-            {subjectsList.filter(s => s !== 'All').map(sub => (
-              <option key={sub} value={sub}>Subject: {sub}</option>
-            ))}
-          </select>
         </div>
 
         {/* Difficulty Filter */}
@@ -628,7 +752,7 @@ export default function QuestionBank() {
           <select
             value={difficultyFilter}
             onChange={(e) => setDifficultyFilter(e.target.value)}
-            className="w-full px-4 py-2.5 rounded-xl bg-white border border-gray-200 text-gray-900 text-xs focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 shadow-sm cursor-pointer"
+            className="w-full px-4 py-2.5 rounded-xl bg-indigo-950/80 border border-indigo-800/60 text-white text-xs focus:outline-none focus:border-amber-400 shadow-sm cursor-pointer"
           >
             <option value="All">Difficulty: All</option>
             <option value="easy">Easy</option>
@@ -642,195 +766,369 @@ export default function QuestionBank() {
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
-            className="w-full px-4 py-2.5 rounded-xl bg-white border border-gray-200 text-gray-900 text-xs focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 shadow-sm cursor-pointer"
+            className="w-full px-4 py-2.5 rounded-xl bg-indigo-950/80 border border-indigo-800/60 text-white text-xs focus:outline-none focus:border-amber-400 shadow-sm cursor-pointer"
           >
             <option value="All">Type: All</option>
-            <option value="mcq-single">MCQ (Single)</option>
-            <option value="mcq-multiple">MCQ (Multiple)</option>
+            <option value="mcq-single">MCQ (Single Answer)</option>
+            <option value="mcq-multiple">MCQ (Multiple Answers)</option>
             <option value="true-false">True / False</option>
             <option value="short-answer">Short Answer</option>
             <option value="essay">Essay</option>
           </select>
         </div>
-
       </div>
 
-      {/* Questions Data Table */}
+      {/* Questions Table */}
       {loading ? (
-        <div className="py-20 text-center space-y-3">
-          <div className="w-10 h-10 border-4 border-red-600 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-gray-500 text-xs">Loading Question Bank items...</p>
-        </div>
+        <BrandedLoader message="Loading Question Bank items..." />
       ) : error ? (
-        <div className="glass-card p-6 text-center text-red-600 text-xs">
-          <AlertCircle className="w-8 h-8 mx-auto mb-2" />
+        <div className="glass-card p-6 text-center text-rose-300 text-xs border border-rose-500/20">
+          <AlertCircle className="w-8 h-8 mx-auto mb-2 text-rose-400" />
           {error}
         </div>
       ) : questions.length === 0 ? (
-        <div className="glass-card py-16 text-center text-gray-500 space-y-3">
-          <HelpCircle className="w-12 h-12 text-gray-400 mx-auto" />
-          <p className="text-sm font-medium text-gray-700">No questions found matching criteria.</p>
-          <p className="text-xs text-gray-500">
+        <div className="glass-card py-16 text-center text-[#a5a3c9] space-y-3 border border-amber-500/15">
+          <HelpCircle className="w-12 h-12 text-[#a5a3c9] mx-auto opacity-60" />
+          <p className="text-sm font-medium text-white">No questions found matching criteria.</p>
+          <p className="text-xs text-[#a5a3c9]">
             Click "Add Question" to create one manually, or "Import from PDF/Word" to bulk upload questions.
           </p>
         </div>
       ) : (
-        <div className="glass-card overflow-hidden border border-gray-200">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-gray-700">
-              <thead className="bg-gray-50 text-gray-500 uppercase text-[10px] font-mono border-b border-gray-200">
-                <tr>
-                  <th className="p-4">Question Text</th>
-                  <th className="p-4">Type</th>
-                  <th className="p-4">Subject</th>
-                  <th className="p-4">Difficulty</th>
-                  <th className="p-4 text-center">Marks (+/-)</th>
-                  <th className="p-4 text-right">Actions</th>
+        <div className="glass-card overflow-hidden border border-amber-500/15 rounded-2xl">
+          <table className="w-full text-left text-xs text-slate-200">
+            <thead className="bg-indigo-950/90 text-[#a5a3c9] uppercase text-[10px] font-mono border-b border-indigo-900/60">
+              <tr>
+                <th className="p-4">Question Prompt</th>
+                <th className="p-4">Subject</th>
+                <th className="p-4">Type</th>
+                <th className="p-4">Difficulty</th>
+                <th className="p-4">Marks</th>
+                <th className="p-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-indigo-900/40">
+              {questions.map((q) => (
+                <tr key={q._id} className="hover:bg-indigo-900/30 transition-colors">
+                  <td className="p-4 max-w-md">
+                    <p className="font-bold text-white leading-relaxed line-clamp-2">{q.questionText}</p>
+                    {q.options && q.options.length > 0 && (
+                      <span className="text-[11px] text-[#a5a3c9] block mt-1">
+                        Options: {q.options.join(', ')}
+                      </span>
+                    )}
+                  </td>
+                  <td className="p-4">
+                    <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                      {q.subject || 'General'}
+                    </span>
+                  </td>
+                  <td className="p-4 font-semibold text-slate-200">
+                    {getTypeBadge(q.type)}
+                  </td>
+                  <td className="p-4">
+                    <span className={`px-2.5 py-0.5 rounded text-[10px] uppercase font-bold border ${getDifficultyBadge(q.difficulty)}`}>
+                      {q.difficulty || 'medium'}
+                    </span>
+                  </td>
+                  <td className="p-4 font-mono font-bold text-teal-400">
+                    +{q.marks || 1}
+                  </td>
+                  <td className="p-4 text-right space-x-2">
+                    <button
+                      onClick={() => openEditModal(q)}
+                      className="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500 hover:text-indigo-950 text-xs font-semibold transition-all cursor-pointer"
+                      title="Edit Question"
+                    >
+                      <Edit3 className="w-3.5 h-3.5 inline" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteQuestion(q._id)}
+                      className="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-300 border border-rose-500/20 hover:bg-rose-600 hover:text-white text-xs font-semibold transition-all cursor-pointer"
+                      title="Delete Question"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 inline" />
+                    </button>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {questions.map((q) => (
-                  <tr key={q._id} className="hover:bg-gray-50/80 transition-colors">
-                    <td className="p-4 max-w-md">
-                      <p className="font-medium text-gray-900 leading-relaxed line-clamp-2">{q.questionText}</p>
-                      {Array.isArray(q.options) && q.options.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-1.5">
-                          {q.options.map((opt, i) => (
-                            <span
-                              key={i}
-                              className={`text-[10px] px-2 py-0.5 rounded ${
-                                opt === q.correctAnswer || (Array.isArray(q.correctAnswer) && q.correctAnswer.includes(opt))
-                                  ? 'bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200'
-                                  : 'bg-gray-100 text-gray-600 border border-gray-200'
-                              }`}
-                            >
-                              {opt}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </td>
-
-                    <td className="p-4">
-                      <span className="px-2.5 py-1 rounded-md bg-gray-50 border border-gray-200 text-[11px] font-medium text-gray-700">
-                        {getTypeBadge(q.type)}
-                      </span>
-                    </td>
-
-                    <td className="p-4 font-semibold text-red-600">
-                      {q.subject}
-                    </td>
-
-                    <td className="p-4">
-                      <span className={`px-2.5 py-1 rounded-md text-[10px] font-mono uppercase font-bold border ${getDifficultyBadge(q.difficulty)}`}>
-                        {q.difficulty}
-                      </span>
-                    </td>
-
-                    <td className="p-4 text-center font-mono font-bold">
-                      <span className="text-emerald-600">+{q.marks}</span>
-                      <span className="text-gray-400 mx-1">/</span>
-                      <span className="text-rose-600">-{q.negativeMarks || 0}</span>
-                    </td>
-
-                    <td className="p-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => openEditModal(q)}
-                          className="p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-900 border border-gray-200 transition-colors"
-                          title="Edit Question"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                        </button>
-
-                        <button
-                          onClick={() => handleDeleteQuestion(q._id)}
-                          className="p-1.5 rounded-lg bg-gray-100 hover:bg-red-50 text-gray-600 hover:text-red-600 border border-gray-200 transition-colors"
-                          title="Delete Question"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
-      {/* Add / Edit Question Modal */}
-      {showFormModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm overflow-y-auto">
-          <div className="bg-white border border-gray-200 rounded-2xl max-w-2xl w-full p-6 space-y-6 shadow-2xl relative my-8">
-            
+      {/* --- MODAL: MANAGE SUBJECTS --- */}
+      {showSubjectModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="bg-[#171545] max-w-lg w-full p-6 space-y-6 border border-amber-500/20 rounded-2xl shadow-2xl relative text-white">
             <button
-              onClick={() => setShowFormModal(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 p-1 rounded-lg"
+              onClick={() => setShowSubjectModal(false)}
+              className="absolute top-4 right-4 text-[#a5a3c9] hover:text-white p-1"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-3 border-b border-gray-100 pb-4">
-              <div className="p-2.5 rounded-xl bg-red-50 text-red-600 border border-red-200">
+            <div className="flex items-center gap-3 border-b border-indigo-900/40 pb-4">
+              <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                <FolderPlus className="w-5 h-5" />
+              </div>
+              <h3 className="text-lg font-bold text-white">Manage Subject Categories</h3>
+            </div>
+
+            {/* Add New Subject Input */}
+            <div className="space-y-2">
+              <label className="block text-xs font-semibold text-[#a5a3c9]">Create New Subject Category</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="e.g. Data Structures, Aptitude, React JS"
+                  value={newSubjectInput}
+                  onChange={(e) => setNewSubjectInput(e.target.value)}
+                  className="flex-grow px-3 py-2 rounded-xl bg-indigo-950 border border-indigo-800 text-xs text-white focus:border-amber-400 focus:outline-none"
+                />
+                <button
+                  onClick={() => handleAddSubject()}
+                  disabled={subjectSubmitting || !newSubjectInput.trim()}
+                  className="px-4 py-2 rounded-xl bg-amber-500 text-indigo-950 font-bold hover:bg-amber-400 text-xs disabled:opacity-50 cursor-pointer"
+                >
+                  Create
+                </button>
+              </div>
+              {subjectError && (
+                <p className="text-xs text-rose-400 mt-1">{subjectError}</p>
+              )}
+            </div>
+
+            {/* Existing Subjects List */}
+            <div className="space-y-2">
+              <span className="text-xs font-bold text-white">Your Created Subjects ({subjects.length}):</span>
+              {subjectsLoading ? (
+                <div className="text-xs text-[#a5a3c9] py-4 text-center">Loading subjects...</div>
+              ) : subjects.length === 0 ? (
+                <div className="text-xs text-[#a5a3c9] p-4 bg-indigo-950 rounded-xl text-center border border-indigo-800">
+                  No custom subjects created yet. Default subject is "General".
+                </div>
+              ) : (
+                <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                  {subjects.map(s => (
+                    <div key={s._id} className="flex items-center justify-between p-2.5 rounded-xl bg-indigo-950 border border-indigo-800 text-xs">
+                      <span className="font-semibold text-white">{s.name}</span>
+                      <button
+                        onClick={() => handleDeleteSubject(s)}
+                        className="p-1 text-rose-400 hover:text-rose-300 rounded hover:bg-rose-500/10 cursor-pointer"
+                        title="Delete Subject"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: CREATE / EDIT QUESTION --- */}
+      {showFormModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="bg-[#171545] max-w-2xl w-full p-6 space-y-6 border border-amber-500/20 rounded-2xl shadow-2xl relative text-white max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setShowFormModal(false)}
+              className="absolute top-4 right-4 text-[#a5a3c9] hover:text-white p-1"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 border-b border-indigo-900/40 pb-4">
+              <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
                 <HelpCircle className="w-5 h-5" />
               </div>
-              <h3 className="text-lg font-bold text-gray-900">
+              <h3 className="text-lg font-bold text-white">
                 {editingQuestion ? 'Edit Question' : 'Create New Question'}
               </h3>
             </div>
 
-            <form onSubmit={handleFormSubmit} className="space-y-4">
+            {formError && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs font-semibold flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-400" />
+                <span>{formError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleFormSubmit} className="space-y-4 text-xs">
               
               {/* Question Text */}
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Question Statement</label>
+                <label className="block font-semibold text-[#a5a3c9] mb-1">Question Statement / Prompt *</label>
                 <textarea
                   required
                   rows={3}
-                  placeholder="Enter the complete question prompt..."
+                  placeholder="Enter clear question statement..."
                   value={formData.questionText}
-                  onChange={(e) => setFormData({ ...formData, questionText: e.target.value })}
-                  className="w-full p-3 rounded-xl bg-white border border-gray-300 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                  onChange={(e) => setFormData(prev => ({ ...prev, questionText: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl bg-indigo-950 border border-indigo-800 text-white focus:border-amber-400 focus:outline-none"
                 />
               </div>
 
-              {/* Type, Subject, Difficulty */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {/* Subject & Type Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Question Type</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-semibold text-[#a5a3c9]">Subject Category *</label>
+                    <button
+                      type="button"
+                      onClick={() => setShowInlineNewSubject(!showInlineNewSubject)}
+                      className="text-[11px] text-amber-400 hover:underline font-semibold"
+                    >
+                      + New Subject
+                    </button>
+                  </div>
+
+                  {showInlineNewSubject ? (
+                    <div className="flex gap-1">
+                      <input
+                        type="text"
+                        placeholder="Subject name..."
+                        value={inlineSubjectInput}
+                        onChange={(e) => setInlineSubjectInput(e.target.value)}
+                        className="w-full px-2 py-1.5 rounded-lg bg-indigo-950 border border-indigo-800 text-xs text-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleInlineSubjectCreate}
+                        className="px-2 py-1 bg-amber-500 text-indigo-950 font-bold rounded-lg text-xs"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  ) : (
+                    <select
+                      value={formData.subject}
+                      onChange={(e) => setFormData(prev => ({ ...prev, subject: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-xl bg-indigo-950 border border-indigo-800 text-white cursor-pointer"
+                    >
+                      {allSubjectNames.map(sName => (
+                        <option key={sName} value={sName}>{sName}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-[#a5a3c9] mb-1">Question Type *</label>
                   <select
                     value={formData.type}
-                    onChange={(e) => handleTypeChange(e.target.value)}
-                    className="w-full p-2.5 rounded-xl bg-white border border-gray-300 text-gray-900 text-xs focus:ring-2 focus:ring-red-500 cursor-pointer font-medium"
+                    onChange={(e) => {
+                      const newType = e.target.value;
+                      let newOpts = formData.options;
+                      let newAns = formData.correctAnswer;
+
+                      if (newType === 'true-false') {
+                        newOpts = ['True', 'False'];
+                        newAns = 'True';
+                      } else if (newType === 'mcq-single') {
+                        if (!newOpts || newOpts.length === 0) newOpts = ['Option A', 'Option B', 'Option C', 'Option D'];
+                        newAns = newOpts[0];
+                      }
+                      setFormData(prev => ({ ...prev, type: newType, options: newOpts, correctAnswer: newAns }));
+                    }}
+                    className="w-full px-3 py-2 rounded-xl bg-indigo-950 border border-indigo-800 text-white cursor-pointer"
                   >
-                    <option value="mcq-single">MCQ (Single Choice)</option>
-                    <option value="mcq-multiple">MCQ (Multiple Choice)</option>
+                    <option value="mcq-single">MCQ (Single Answer)</option>
+                    <option value="mcq-multiple">MCQ (Multiple Answers)</option>
                     <option value="true-false">True / False</option>
                     <option value="short-answer">Short Answer</option>
                     <option value="essay">Essay</option>
                   </select>
                 </div>
+              </div>
 
+              {/* Options for MCQ / True-False */}
+              {(formData.type === 'mcq-single' || formData.type === 'mcq-multiple') && (
+                <div className="space-y-2 p-3 bg-indigo-950/60 rounded-xl border border-indigo-800/80">
+                  <span className="font-semibold text-white block">Multiple Choice Options & Correct Answer Selection:</span>
+                  {formData.options.map((optText, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="correctOpt"
+                        checked={formData.correctAnswer === optText}
+                        onChange={() => setFormData(prev => ({ ...prev, correctAnswer: optText }))}
+                        className="text-amber-400 focus:ring-amber-400"
+                      />
+                      <input
+                        type="text"
+                        placeholder={`Option ${idx + 1}`}
+                        value={optText}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const updatedOpts = [...formData.options];
+                          const oldVal = updatedOpts[idx];
+                          updatedOpts[idx] = val;
+                          let updatedAns = formData.correctAnswer;
+                          if (updatedAns === oldVal) updatedAns = val;
+                          setFormData(prev => ({ ...prev, options: updatedOpts, correctAnswer: updatedAns }));
+                        }}
+                        className="flex-grow px-3 py-1.5 rounded-lg bg-indigo-950 border border-indigo-800 text-white"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {formData.type === 'true-false' && (
+                <div className="space-y-2 p-3 bg-indigo-950/60 rounded-xl border border-indigo-800/80">
+                  <span className="font-semibold text-white block">Select Correct Answer:</span>
+                  <div className="flex gap-4">
+                    {['True', 'False'].map((tf) => (
+                      <label key={tf} className="flex items-center gap-2 cursor-pointer text-white">
+                        <input
+                          type="radio"
+                          name="tfOption"
+                          value={tf}
+                          checked={formData.correctAnswer === tf}
+                          onChange={(e) => setFormData(prev => ({ ...prev, correctAnswer: e.target.value }))}
+                          className="text-amber-400 focus:ring-amber-400"
+                        />
+                        <span>{tf}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Marks & Difficulty */}
+              <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Subject Tag</label>
+                  <label className="block font-semibold text-[#a5a3c9] mb-1">Marks *</label>
                   <input
-                    type="text"
-                    required
-                    placeholder="e.g. Computer Science"
-                    value={formData.subject}
-                    onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
-                    className="w-full p-2.5 rounded-xl bg-white border border-gray-300 text-gray-900 text-xs focus:ring-2 focus:ring-red-500"
+                    type="number"
+                    min={1}
+                    value={formData.marks}
+                    onChange={(e) => setFormData(prev => ({ ...prev, marks: Number(e.target.value) }))}
+                    className="w-full px-3 py-2 rounded-xl bg-indigo-950 border border-indigo-800 text-white"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Difficulty</label>
+                  <label className="block font-semibold text-[#a5a3c9] mb-1">Negative Marks</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.25}
+                    value={formData.negativeMarks}
+                    onChange={(e) => setFormData(prev => ({ ...prev, negativeMarks: Number(e.target.value) }))}
+                    className="w-full px-3 py-2 rounded-xl bg-indigo-950 border border-indigo-800 text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-[#a5a3c9] mb-1">Difficulty</label>
                   <select
                     value={formData.difficulty}
-                    onChange={(e) => setFormData({ ...formData, difficulty: e.target.value })}
-                    className="w-full p-2.5 rounded-xl bg-white border border-gray-300 text-gray-900 text-xs focus:ring-2 focus:ring-red-500 cursor-pointer"
+                    onChange={(e) => setFormData(prev => ({ ...prev, difficulty: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl bg-indigo-950 border border-indigo-800 text-white cursor-pointer"
                   >
                     <option value="easy">Easy</option>
                     <option value="medium">Medium</option>
@@ -839,874 +1137,82 @@ export default function QuestionBank() {
                 </div>
               </div>
 
-              {/* MCQ Options Configurator */}
-              {(formData.type === 'mcq-single' || formData.type === 'mcq-multiple') && (
-                <div className="space-y-3 p-4 rounded-xl bg-gray-50 border border-gray-200">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-gray-800 block">MCQ Options Builder</span>
-                    <span className="text-[11px] text-gray-500 font-normal">
-                      {formData.type === 'mcq-single'
-                        ? 'Click radio button to mark correct answer'
-                        : 'Check boxes for correct answers'}
-                    </span>
-                  </div>
-
-                  {formData.options.map((opt, idx) => {
-                    const isSelected = formData.type === 'mcq-single'
-                      ? formData.correctAnswer === opt
-                      : (Array.isArray(formData.correctAnswer)
-                          ? formData.correctAnswer.includes(opt)
-                          : (typeof formData.correctAnswer === 'string' && formData.correctAnswer
-                              ? formData.correctAnswer.split(', ').includes(opt)
-                              : false));
-
-                    return (
-                      <div
-                        key={idx}
-                        className={`flex items-center gap-3 p-2 rounded-lg transition-colors ${
-                          isSelected ? 'bg-red-50/80 border border-red-200 shadow-sm' : 'bg-white border border-gray-200'
-                        }`}
-                      >
-                        {formData.type === 'mcq-single' ? (
-                          <input
-                            type="radio"
-                            name="mcq-form-correct-answer"
-                            checked={isSelected}
-                            onChange={() => {
-                              setFormData({ ...formData, correctAnswer: opt });
-                              setFormError(null);
-                            }}
-                            className="w-4 h-4 text-red-600 border-gray-300 focus:ring-red-500 accent-red-600 cursor-pointer shrink-0"
-                            title="Mark as correct answer"
-                          />
-                        ) : (
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={(e) => {
-                              let currentArr = Array.isArray(formData.correctAnswer)
-                                ? [...formData.correctAnswer]
-                                : (typeof formData.correctAnswer === 'string' && formData.correctAnswer
-                                    ? formData.correctAnswer.split(', ')
-                                    : []);
-                              if (e.target.checked) {
-                                if (!currentArr.includes(opt)) currentArr.push(opt);
-                              } else {
-                                currentArr = currentArr.filter(item => item !== opt);
-                              }
-                              setFormData({ ...formData, correctAnswer: currentArr.join(', ') });
-                              setFormError(null);
-                            }}
-                            className="w-4 h-4 text-red-600 rounded border-gray-300 focus:ring-red-500 accent-red-600 cursor-pointer shrink-0"
-                            title="Mark as correct answer"
-                          />
-                        )}
-
-                        <span className="text-xs font-mono font-bold text-gray-500 w-5">
-                          {String.fromCharCode(65 + idx)}.
-                        </span>
-
-                        <input
-                          type="text"
-                          placeholder={`Option ${String.fromCharCode(65 + idx)}`}
-                          value={opt}
-                          onChange={(e) => {
-                            const newText = e.target.value;
-                            const oldText = formData.options[idx];
-                            const newOpts = [...formData.options];
-                            newOpts[idx] = newText;
-
-                            let updatedAns = formData.correctAnswer;
-                            if (formData.type === 'mcq-single') {
-                              if (formData.correctAnswer === oldText) {
-                                updatedAns = newText;
-                              }
-                            } else if (formData.type === 'mcq-multiple') {
-                              let currentArr = Array.isArray(formData.correctAnswer)
-                                ? [...formData.correctAnswer]
-                                : (typeof formData.correctAnswer === 'string' && formData.correctAnswer
-                                    ? formData.correctAnswer.split(', ')
-                                    : []);
-                              currentArr = currentArr.map(item => item === oldText ? newText : item);
-                              updatedAns = currentArr.join(', ');
-                            }
-
-                            setFormData({ ...formData, options: newOpts, correctAnswer: updatedAns });
-                            setFormError(null);
-                          }}
-                          className="flex-grow p-2 rounded-lg bg-white border border-gray-300 text-gray-900 text-xs focus:ring-2 focus:ring-red-500"
-                        />
-
-                        {formData.options.length > 2 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const removedText = formData.options[idx];
-                              const newOpts = formData.options.filter((_, i) => i !== idx);
-                              let updatedAns = formData.correctAnswer;
-                              if (formData.type === 'mcq-single') {
-                                if (formData.correctAnswer === removedText) {
-                                  updatedAns = newOpts[0] || '';
-                                }
-                              }
-                              setFormData({ ...formData, options: newOpts, correctAnswer: updatedAns });
-                              setFormError(null);
-                            }}
-                            className="text-gray-400 hover:text-red-600 p-1 cursor-pointer"
-                            title="Remove option"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-
-                  {formData.options.length < 6 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const nextLetter = String.fromCharCode(65 + formData.options.length);
-                        setFormData({
-                          ...formData,
-                          options: [...formData.options, `Option ${nextLetter}`]
-                        });
-                      }}
-                      className="text-xs font-bold text-red-600 hover:text-red-700 flex items-center gap-1 cursor-pointer pt-1"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> Add Option
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Correct Answer Display / Input */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Correct Answer / Sample Solution
-                </label>
-
-                {formData.type === 'mcq-single' || formData.type === 'mcq-multiple' ? (
-                  <div className="p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-semibold text-gray-900 flex items-center gap-2">
-                    <span className="text-gray-500 font-normal">Correct Answer:</span>
-                    {(() => {
-                      if (formData.type === 'mcq-single') {
-                        const selectedIndex = formData.options.findIndex(o => o === formData.correctAnswer && o !== '');
-                        if (selectedIndex >= 0 && formData.correctAnswer) {
-                          return (
-                            <span className="text-red-600 font-bold flex items-center gap-1.5">
-                              <CheckCircle2 className="w-4 h-4 text-emerald-600 inline shrink-0" />
-                              {String.fromCharCode(65 + selectedIndex)}) {formData.correctAnswer}
-                            </span>
-                          );
-                        }
-                        return <span className="text-amber-600 font-normal italic">None selected — please click a radio button next to an option above</span>;
-                      } else {
-                        const selectedArr = Array.isArray(formData.correctAnswer)
-                          ? formData.correctAnswer
-                          : (typeof formData.correctAnswer === 'string' && formData.correctAnswer ? formData.correctAnswer.split(', ') : []);
-
-                        const validSelected = selectedArr.map(ans => {
-                          const idx = formData.options.findIndex(o => o === ans);
-                          return idx >= 0 ? `${String.fromCharCode(65 + idx)}) ${ans}` : null;
-                        }).filter(Boolean);
-
-                        if (validSelected.length > 0) {
-                          return (
-                            <span className="text-red-600 font-bold flex items-center gap-1.5">
-                              <CheckCircle2 className="w-4 h-4 text-emerald-600 inline shrink-0" />
-                              {validSelected.join(', ')}
-                            </span>
-                          );
-                        }
-                        return <span className="text-amber-600 font-normal italic">None selected — please check option boxes above</span>;
-                      }
-                    })()}
-                  </div>
-                ) : formData.type === 'true-false' ? (
-                  <div className="flex gap-4 p-1">
-                    {['True', 'False'].map(val => (
-                      <label key={val} className="flex items-center gap-2 text-xs font-semibold text-gray-800 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="tf-answer-radio-group"
-                          checked={formData.correctAnswer === val}
-                          onChange={() => {
-                            setFormData({ ...formData, options: ['True', 'False'], correctAnswer: val });
-                            setFormError(null);
-                          }}
-                          className="w-4 h-4 text-red-600 border-gray-300 focus:ring-red-500 accent-red-600 cursor-pointer"
-                        />
-                        {val}
-                      </label>
-                    ))}
-                  </div>
-                ) : (
-                  <input
-                    type="text"
-                    placeholder="Exact answer text or evaluation rubric"
-                    value={formData.correctAnswer}
-                    onChange={(e) => {
-                      setFormData({ ...formData, correctAnswer: e.target.value });
-                      setFormError(null);
-                    }}
-                    className="w-full p-2.5 rounded-xl bg-white border border-gray-300 text-gray-900 text-xs focus:ring-2 focus:ring-red-500"
-                  />
-                )}
-              </div>
-
-              {/* Marks & Negative Marks */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Positive Marks (+)</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={formData.marks}
-                    onChange={(e) => setFormData({ ...formData, marks: Number(e.target.value) })}
-                    className="w-full p-2.5 rounded-xl bg-white border border-gray-300 text-gray-900 text-xs focus:ring-2 focus:ring-red-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Negative Marks (-)</label>
-                  <input
-                    type="number"
-                    step="0.25"
-                    value={formData.negativeMarks}
-                    onChange={(e) => setFormData({ ...formData, negativeMarks: Number(e.target.value) })}
-                    className="w-full p-2.5 rounded-xl bg-white border border-gray-300 text-gray-900 text-xs focus:ring-2 focus:ring-red-500"
-                  />
-                </div>
-              </div>
-
-              {/* Inline Validation Error Message */}
-              {formError && (
-                <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
-                  <span>{formError}</span>
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="flex gap-3 pt-4">
+              <div className="flex gap-3 pt-4 border-t border-indigo-900/40">
                 <button
                   type="button"
                   onClick={() => setShowFormModal(false)}
-                  className="w-1/2 py-2.5 rounded-xl border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 text-xs font-semibold transition-colors cursor-pointer"
+                  className="w-1/2 py-2.5 rounded-xl bg-indigo-950 border border-indigo-800 text-[#a5a3c9] hover:text-white font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="w-1/2 py-2.5 rounded-xl bg-red-600 text-white text-xs font-semibold hover:bg-red-700 transition-colors shadow-lg shadow-red-600/25 cursor-pointer"
+                  className="w-1/2 py-2.5 rounded-xl bg-amber-500 text-indigo-950 font-bold hover:bg-amber-400 shadow-md shadow-amber-500/20"
                 >
                   {editingQuestion ? 'Save Changes' : 'Create Question'}
                 </button>
               </div>
 
             </form>
-
           </div>
         </div>
       )}
 
-      {/* 1. Document (PDF / Word) Upload Modal */}
+      {/* --- MODAL: PDF / WORD UPLOAD --- */}
       {showPdfModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
-          <div className="bg-white border border-gray-200 rounded-2xl p-6 max-w-xl w-full max-h-[90vh] flex flex-col shadow-2xl animate-in fade-in zoom-in duration-150">
-            
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-gray-100 pb-4 flex-shrink-0">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2.5 rounded-xl bg-red-50 text-red-600 border border-red-200">
-                  <FileText className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-gray-900">Import Questions from PDF / Word</h3>
-                  <p className="text-xs text-gray-500">Supports PDF (.pdf) and Word (.docx) files</p>
-                </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="bg-[#171545] max-w-lg w-full p-6 space-y-6 border border-amber-500/20 rounded-2xl shadow-2xl relative text-white">
+            <button
+              onClick={resetPdfModalState}
+              className="absolute top-4 right-4 text-[#a5a3c9] hover:text-white p-1"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 border-b border-indigo-900/40 pb-4">
+              <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                <FileText className="w-5 h-5" />
               </div>
-              <button
-                onClick={resetPdfModalState}
-                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-                title="Close modal"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <h3 className="text-lg font-bold text-white">Import Questions from PDF / Word</h3>
             </div>
 
-            {/* Scrollable Modal Content Body */}
-            <div className="flex-1 overflow-y-auto space-y-4 py-4 pr-1">
-              {/* In-Modal Error Alert */}
-              {pdfError && (
-                <div className="bg-red-50 border border-red-200 rounded-xl p-3.5 flex items-start justify-between gap-3 text-xs text-red-900 animate-in fade-in duration-150">
-                  <div className="flex items-start gap-2.5">
-                    <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <strong className="font-bold text-red-950">Failed to Parse Document:</strong>
-                      <p className="mt-0.5 text-red-700 leading-relaxed">{pdfError}</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setPdfError(null)}
-                    className="px-2 py-1 rounded bg-white border border-red-200 text-red-700 font-bold hover:bg-red-100 transition-colors flex-shrink-0 text-[11px]"
-                  >
-                    Try Again
-                  </button>
-                </div>
+            <div className="border-2 border-dashed border-indigo-800/80 hover:border-amber-400/60 rounded-2xl p-6 text-center space-y-3 bg-indigo-950/40">
+              <FileText className="w-8 h-8 text-amber-400 mx-auto" />
+              <label className="cursor-pointer text-xs font-semibold text-amber-400 hover:underline block">
+                Select PDF (.pdf) or Word (.docx) File
+                <input
+                  type="file"
+                  accept=".pdf,.docx"
+                  onChange={handlePdfFileChange}
+                  className="hidden"
+                />
+              </label>
+              {pdfFileName && (
+                <span className="text-xs font-mono text-[#a5a3c9] block">{pdfFileName}</span>
               )}
-
-              {/* Template Information & Downloads */}
-              <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3 text-xs">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <span className="font-bold text-gray-800 flex items-center gap-1.5">
-                    <FileCode className="w-4 h-4 text-red-600" />
-                    Fixed Template Format (Recommended)
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => downloadTemplate('pdf')}
-                      className="px-2.5 py-1 rounded-lg bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 font-semibold text-[11px] flex items-center gap-1 transition-all shadow-sm"
-                    >
-                      <Download className="w-3.5 h-3.5 text-red-600" />
-                      Download PDF Template
-                    </button>
-                    <button
-                      onClick={() => downloadTemplate('docx')}
-                      className="px-2.5 py-1 rounded-lg bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 font-semibold text-[11px] flex items-center gap-1 transition-all shadow-sm"
-                    >
-                      <Download className="w-3.5 h-3.5 text-blue-600" />
-                      Download Word Template
-                    </button>
-                  </div>
-                </div>
-
-                <pre className="bg-white border border-gray-200 rounded-lg p-2.5 font-mono text-[11px] text-gray-700 overflow-x-auto leading-relaxed">
-{`Q: What is the time complexity of binary search?
-TYPE: MCQ
-A) O(n)
-B) O(log n)
-C) O(n^2)
-D) O(1)
-ANSWER: B
-MARKS: 2
-NEGATIVE: 0.5
-DIFFICULTY: medium
----
-Q: The sky is blue.
-TYPE: TRUEFALSE
-ANSWER: TRUE
-MARKS: 1
----
-Q: Explain the concept of recursion.
-TYPE: SHORTANSWER
-MARKS: 5`}
-                </pre>
-              </div>
-
-              {/* File Dropzone / Selector */}
-              <div className="space-y-2">
-                <label className="block text-xs font-semibold text-gray-700">Select Document File (.pdf, .docx)</label>
-                <div
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    const droppedFile = e.dataTransfer.files?.[0];
-                    if (droppedFile) {
-                      handlePdfFileChange({ target: { files: [droppedFile] } });
-                    }
-                  }}
-                  className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors bg-gray-50/50 ${
-                    pdfFile ? 'border-red-500 bg-red-50/30' : 'border-gray-300 hover:border-red-400'
-                  }`}
-                >
-                  <input
-                    type="file"
-                    accept=".pdf,.docx"
-                    onChange={handlePdfFileChange}
-                    className="hidden"
-                    id="pdf-upload-input"
-                  />
-                  <div className="flex flex-col items-center space-y-3">
-                    <div className={`p-3 rounded-full ${pdfFile ? 'bg-red-600 text-white' : 'bg-red-50 text-red-600'}`}>
-                      <Upload className="w-6 h-6" />
-                    </div>
-                    
-                    {pdfFileName ? (
-                      <div className="space-y-2">
-                        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-red-100 text-red-800 font-extrabold text-xs border border-red-200">
-                          <FileText className="w-4 h-4 text-red-600" />
-                          {pdfFileName}
-                        </div>
-                        <div>
-                          <label
-                            htmlFor="pdf-upload-input"
-                            className="inline-block px-3 py-1 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 text-[11px] font-semibold rounded-lg cursor-pointer transition-colors shadow-sm"
-                          >
-                            Change Selected File
-                          </label>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <p className="text-xs text-gray-600 font-medium">
-                          Drag & drop your PDF or Word document here, or click below:
-                        </p>
-                        <label
-                          htmlFor="pdf-upload-input"
-                          className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl cursor-pointer transition-colors shadow-sm"
-                        >
-                          <Upload className="w-4 h-4" />
-                          Browse / Choose File
-                        </label>
-                      </div>
-                    )}
-
-                    <span className="text-[10px] text-gray-400 block pt-1">
-                      Accepted formats: .pdf, .docx (Max 15MB)
-                    </span>
-                  </div>
-                </div>
-              </div>
             </div>
 
-            {/* Sticky Action Footer Bar (Always Visible) */}
-            <div className="flex gap-3 pt-4 border-t border-gray-100 flex-shrink-0 bg-white">
+            {pdfError && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs font-semibold">
+                {pdfError}
+              </div>
+            )}
+
+            <div className="flex gap-3">
               <button
                 onClick={resetPdfModalState}
-                className="w-1/2 py-3 rounded-xl border border-gray-300 text-gray-700 text-xs font-semibold hover:bg-gray-50 transition-colors cursor-pointer"
+                className="w-1/2 py-2.5 rounded-xl bg-indigo-950 border border-indigo-800 text-[#a5a3c9] hover:text-white text-xs font-semibold"
               >
                 Cancel
               </button>
               <button
                 onClick={handlePdfExtract}
-                disabled={!pdfFile || pdfParsing}
-                className="w-1/2 py-3 rounded-xl bg-red-600 text-white text-xs font-extrabold hover:bg-red-700 transition-colors shadow-md shadow-red-600/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
+                disabled={pdfParsing || !pdfFile}
+                className="w-1/2 py-2.5 rounded-xl bg-amber-500 text-indigo-950 font-bold hover:bg-amber-400 text-xs disabled:opacity-50 shadow-md shadow-amber-500/20"
               >
-                {pdfParsing ? (
-                  <>
-                    <span className="animate-spin text-white">⏳</span>
-                    Parsing questions... Please wait
-                  </>
-                ) : (
-                  <>
-                    <Upload className="w-4 h-4" />
-                    Upload & Parse Questions
-                  </>
-                )}
+                {pdfParsing ? 'Parsing Document...' : 'Extract & Preview'}
               </button>
             </div>
-
-          </div>
-        </div>
-      )}
-
-      {/* 2. Review Parsed Questions Modal */}
-      {showPdfReviewModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
-          <div className="bg-white border border-gray-200 rounded-2xl w-full max-w-6xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-150">
-            
-            {/* Header Banner */}
-            <div className="p-5 border-b border-gray-200 bg-gray-50/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-red-600 text-white shadow-md shadow-red-600/20">
-                  <FileText className="w-6 h-6" />
-                </div>
-                <div>
-                  <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">
-                    Review Extracted Questions
-                  </h2>
-                  <p className="text-xs text-gray-500">
-                    Verify, edit, or exclude extracted questions before adding them to your Question Bank.
-                  </p>
-                </div>
-              </div>
-
-              {/* Status Stats Badges */}
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 font-medium border border-gray-200">
-                  Total Parsed: <strong>{pdfParsedQuestions.length}</strong>
-                </span>
-                <span className="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-800 font-semibold border border-amber-200 flex items-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-                  Need Review: <strong>{pdfParsedQuestions.filter(q => q.hasWarning).length}</strong>
-                </span>
-                <span className="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-800 font-semibold border border-emerald-200 flex items-center gap-1">
-                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                  Selected: <strong>{pdfParsedQuestions.filter(q => q.isIncluded).length}</strong>
-                </span>
-              </div>
-            </div>
-
-            {/* Quick Actions Bar */}
-            <div className="px-5 py-3 border-b border-gray-200 bg-white flex flex-wrap items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => toggleSelectAllPdf(true)}
-                  className="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium transition-colors cursor-pointer"
-                >
-                  Select All
-                </button>
-                <button
-                  onClick={() => toggleSelectAllPdf(false)}
-                  className="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium transition-colors cursor-pointer"
-                >
-                  Deselect All
-                </button>
-              </div>
-
-              <div className="flex items-center gap-2 text-gray-500 text-xs">
-                <span>Extraction Mode:</span>
-                <span className="px-2.5 py-0.5 rounded-full bg-red-50 text-red-700 font-semibold border border-red-200 text-[11px] capitalize">
-                  {pdfParseMethod || 'Fixed Template'}
-                </span>
-              </div>
-            </div>
-
-            {/* Topic Sections Bulk Tagging Bar */}
-            {pdfParsedQuestions.length > 0 && (
-              <div className="px-5 py-2.5 bg-red-50/60 border-b border-red-100 flex flex-wrap items-center justify-between gap-3 text-xs">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-bold text-red-900 flex items-center gap-1">
-                    <Layers className="w-3.5 h-3.5 text-red-600" />
-                    Detected Topic Sections:
-                  </span>
-                  <select
-                    value={selectedTopicSection}
-                    onChange={(e) => setSelectedTopicSection(e.target.value)}
-                    className="text-xs font-semibold text-gray-800 bg-white border border-gray-300 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-red-500 cursor-pointer"
-                  >
-                    {['All', ...new Set(pdfParsedQuestions.map(q => q.sectionTopic || q.subject || 'General'))].map((topic, i) => (
-                      <option key={i} value={topic}>
-                        {topic} ({topic === 'All' ? pdfParsedQuestions.length : pdfParsedQuestions.filter(q => (q.sectionTopic || q.subject || 'General') === topic).length} Qs)
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    placeholder="Set Target Subject/Tag (e.g. Reasoning)"
-                    value={bulkSubjectValue}
-                    onChange={(e) => setBulkSubjectValue(e.target.value)}
-                    className="text-xs text-gray-900 bg-white border border-gray-300 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-red-500 w-52"
-                  />
-                  <button
-                    onClick={handleApplyBulkSubjectToTopic}
-                    className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg text-xs transition-colors shadow-sm cursor-pointer"
-                  >
-                    Bulk Tag Topic Section
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Extracted Questions Cards Scroll Area */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-gray-50/50">
-              {pdfParsedQuestions.length === 0 ? (
-                <div className="text-center py-12 bg-white rounded-xl border border-gray-200">
-                  <AlertCircle className="w-10 h-10 text-gray-400 mx-auto mb-2" />
-                  <p className="text-sm font-semibold text-gray-700">No questions found in uploaded document.</p>
-                  <p className="text-xs text-gray-400 mt-1">Please ensure the document is text-based or follows the template format.</p>
-                </div>
-              ) : (
-                pdfParsedQuestions.map((q, idx) => (
-                  <div
-                    key={q.tempId}
-                    className={`bg-white border rounded-xl p-4 shadow-sm space-y-4 transition-all ${
-                      q.isIncluded ? 'border-gray-200' : 'border-gray-200 opacity-60 bg-gray-50'
-                    } ${q.hasWarning ? 'ring-1 ring-amber-400 border-amber-300' : ''}`}
-                  >
-                    {/* Top Bar */}
-                    <div className="flex items-center justify-between gap-3 border-b border-gray-100 pb-3">
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          checked={!!q.isIncluded}
-                          onChange={() => togglePdfQuestionSelection(q.tempId)}
-                          className="w-4 h-4 text-red-600 rounded border-gray-300 focus:ring-red-500 cursor-pointer"
-                        />
-                        <span className="font-mono text-xs font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                          #{idx + 1}
-                        </span>
-                        
-                        {/* Type Selector */}
-                        <select
-                          value={q.type}
-                          onChange={(e) => updatePdfQuestion(q.tempId, 'type', e.target.value)}
-                          className="text-xs font-semibold text-gray-800 bg-white border border-gray-300 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-red-500 cursor-pointer"
-                        >
-                          <option value="mcq-single">MCQ (Single Answer)</option>
-                          <option value="true-false">True / False</option>
-                          <option value="short-answer">Short Answer</option>
-                        </select>
-                      </div>
-
-                      <div className="flex items-center gap-3 text-xs">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-gray-500 font-medium">Marks:</span>
-                          <input
-                            type="number"
-                            min="1"
-                            value={q.marks}
-                            onChange={(e) => updatePdfQuestion(q.tempId, 'marks', e.target.value)}
-                            className="w-14 text-xs font-bold text-gray-800 bg-white border border-gray-300 rounded-lg px-2 py-0.5 text-center"
-                          />
-                        </div>
-
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-gray-500 font-medium">Difficulty:</span>
-                          <select
-                            value={q.difficulty}
-                            onChange={(e) => updatePdfQuestion(q.tempId, 'difficulty', e.target.value)}
-                            className="text-xs font-medium text-gray-800 bg-white border border-gray-300 rounded-lg px-2 py-0.5 capitalize cursor-pointer"
-                          >
-                            <option value="easy">Easy</option>
-                            <option value="medium">Medium</option>
-                            <option value="hard">Hard</option>
-                          </select>
-                        </div>
-
-                        <button
-                          onClick={() => removePdfQuestionCard(q.tempId)}
-                          className="p-1 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-                          title="Discard question"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Warning Alert Badge */}
-                    {q.hasWarning && (
-                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 flex items-center gap-2 text-xs text-amber-800">
-                        <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
-                        <span>
-                          <strong>Needs Review:</strong> {q.warnings.join(' | ')}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Question Text Textarea */}
-                    <div>
-                      <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">
-                        Question Text
-                      </label>
-                      <textarea
-                        rows={2}
-                        value={q.questionText}
-                        onChange={(e) => updatePdfQuestion(q.tempId, 'questionText', e.target.value)}
-                        className="w-full text-xs font-medium text-gray-900 bg-white border border-gray-300 rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-red-500"
-                        placeholder="Enter question text..."
-                      />
-                    </div>
-
-                    {/* MCQ Options List */}
-                    {(q.type === 'mcq-single' || q.type === 'mcq-multiple') && (
-                      <div className="space-y-2 pt-1">
-                        <div className="flex items-center justify-between">
-                          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider">
-                            Options Builder
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => handlePdfAddOption(q.tempId)}
-                            className="text-[11px] font-bold text-red-600 hover:text-red-700 flex items-center gap-1 cursor-pointer"
-                          >
-                            <Plus className="w-3 h-3" /> Add Option
-                          </button>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                          {(q.options || []).map((opt, optIdx) => {
-                            const isOptSelected = q.type === 'mcq-single'
-                              ? q.correctAnswer === opt
-                              : (Array.isArray(q.correctAnswer)
-                                  ? q.correctAnswer.includes(opt)
-                                  : (typeof q.correctAnswer === 'string' && q.correctAnswer
-                                      ? q.correctAnswer.split(', ').includes(opt)
-                                      : false));
-
-                            return (
-                              <div
-                                key={optIdx}
-                                className={`flex items-center gap-2 p-1.5 rounded-lg border transition-colors ${
-                                  isOptSelected ? 'bg-red-50/80 border-red-200' : 'bg-white border-gray-200'
-                                }`}
-                              >
-                                <input
-                                  type={q.type === 'mcq-single' ? 'radio' : 'checkbox'}
-                                  name={`pdf-mcq-correct-${q.tempId}`}
-                                  checked={isOptSelected}
-                                  onChange={(e) => {
-                                    if (q.type === 'mcq-single') {
-                                      updatePdfQuestion(q.tempId, 'correctAnswer', opt);
-                                    } else {
-                                      let currentArr = Array.isArray(q.correctAnswer)
-                                        ? [...q.correctAnswer]
-                                        : (typeof q.correctAnswer === 'string' && q.correctAnswer
-                                            ? q.correctAnswer.split(', ')
-                                            : []);
-                                      if (e.target.checked) {
-                                        if (!currentArr.includes(opt)) currentArr.push(opt);
-                                      } else {
-                                        currentArr = currentArr.filter(item => item !== opt);
-                                      }
-                                      updatePdfQuestion(q.tempId, 'correctAnswer', currentArr.join(', '));
-                                    }
-                                  }}
-                                  className="w-4 h-4 text-red-600 border-gray-300 focus:ring-red-500 accent-red-600 cursor-pointer shrink-0"
-                                  title="Mark as correct answer"
-                                />
-
-                                <span className="font-mono text-xs font-bold text-gray-500 w-5">
-                                  {String.fromCharCode(65 + optIdx)})
-                                </span>
-
-                                <input
-                                  type="text"
-                                  value={opt}
-                                  onChange={(e) => updatePdfOptionText(q.tempId, optIdx, e.target.value)}
-                                  className="flex-1 text-xs text-gray-800 bg-white border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-red-500"
-                                  placeholder={`Option ${optIdx + 1}`}
-                                />
-
-                                <button
-                                  type="button"
-                                  onClick={() => handlePdfRemoveOption(q.tempId, optIdx)}
-                                  className="text-gray-400 hover:text-red-600 p-1 cursor-pointer"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Correct Answer Display / Selector */}
-                    <div className="pt-1">
-                      <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">
-                        Correct Answer
-                      </label>
-
-                      {q.type === 'mcq-single' || q.type === 'mcq-multiple' ? (
-                        <div className="p-2.5 rounded-lg bg-gray-50 border border-gray-200 text-xs font-semibold text-gray-900 flex items-center gap-2">
-                          <span className="text-gray-500 font-normal">Selected:</span>
-                          {(() => {
-                            if (q.type === 'mcq-single') {
-                              const selectedIdx = (q.options || []).findIndex(o => o === q.correctAnswer && o !== '');
-                              if (selectedIdx >= 0 && q.correctAnswer) {
-                                return (
-                                  <span className="text-red-600 font-bold flex items-center gap-1.5">
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 inline shrink-0" />
-                                    {String.fromCharCode(65 + selectedIdx)}) {q.correctAnswer}
-                                  </span>
-                                );
-                              }
-                              return <span className="text-amber-600 font-normal italic">None selected — please click a radio button above</span>;
-                            } else {
-                              const selectedArr = Array.isArray(q.correctAnswer)
-                                ? q.correctAnswer
-                                : (typeof q.correctAnswer === 'string' && q.correctAnswer ? q.correctAnswer.split(', ') : []);
-
-                              const validSelected = selectedArr.map(ans => {
-                                const idx = (q.options || []).findIndex(o => o === ans);
-                                return idx >= 0 ? `${String.fromCharCode(65 + idx)}) ${ans}` : null;
-                              }).filter(Boolean);
-
-                              if (validSelected.length > 0) {
-                                return (
-                                  <span className="text-red-600 font-bold flex items-center gap-1.5">
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 inline shrink-0" />
-                                    {validSelected.join(', ')}
-                                  </span>
-                                );
-                              }
-                              return <span className="text-amber-600 font-normal italic">None selected — please check option boxes above</span>;
-                            }
-                          })()}
-                        </div>
-                      ) : q.type === 'true-false' ? (
-                        <select
-                          value={q.correctAnswer}
-                          onChange={(e) => updatePdfQuestion(q.tempId, 'correctAnswer', e.target.value)}
-                          className="w-full text-xs font-semibold text-gray-900 bg-white border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500 cursor-pointer"
-                        >
-                          <option value="True">True</option>
-                          <option value="False">False</option>
-                        </select>
-                      ) : (
-                        <input
-                          type="text"
-                          value={q.correctAnswer}
-                          onChange={(e) => updatePdfQuestion(q.tempId, 'correctAnswer', e.target.value)}
-                          className="w-full text-xs text-gray-900 bg-white border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500"
-                          placeholder="Enter expected key answer / model keywords..."
-                        />
-                      )}
-                    </div>
-
-                    {/* Explanation / Solution Note */}
-                    <div className="pt-2 border-t border-gray-100">
-                      <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5 text-red-600" />
-                        Explanation / Solution Note (Shown to candidates after exam review)
-                      </label>
-                      <textarea
-                        rows={2}
-                        value={q.explanation || ''}
-                        onChange={(e) => updatePdfQuestion(q.tempId, 'explanation', e.target.value)}
-                        className="w-full text-xs text-gray-800 bg-red-50/40 border border-red-100 rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-red-500"
-                        placeholder="Enter solution explanation, steps, or formula notes..."
-                      />
-                    </div>
-
-                  </div>
-                ))
-              )}
-            </div>
-
-            {/* Sticky Bottom Actions Bar */}
-            <div className="p-4 border-t border-gray-200 bg-white flex items-center justify-between gap-4">
-              <span className="text-xs text-gray-600 font-medium">
-                Ready to import:{' '}
-                <strong className="text-red-600 font-extrabold">
-                  {pdfParsedQuestions.filter(q => q.isIncluded).length}
-                </strong>{' '}
-                of {pdfParsedQuestions.length} questions
-              </span>
-
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => {
-                    setShowPdfReviewModal(false);
-                    setPdfParsedQuestions([]);
-                  }}
-                  className="px-4 py-2 rounded-xl border border-gray-300 text-gray-700 text-xs font-semibold hover:bg-gray-50 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleConfirmPdfImport}
-                  disabled={pdfImporting || pdfParsedQuestions.filter(q => q.isIncluded).length === 0}
-                  className="px-6 py-2 rounded-xl bg-red-600 text-white text-xs font-semibold hover:bg-red-700 transition-colors shadow-md shadow-red-600/20 disabled:opacity-50 flex items-center gap-2 cursor-pointer"
-                >
-                  {pdfImporting ? (
-                    'Saving to Question Bank...'
-                  ) : (
-                    <>
-                      <Check className="w-4 h-4" />
-                      Confirm & Import ({pdfParsedQuestions.filter(q => q.isIncluded).length} Questions)
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-
           </div>
         </div>
       )}

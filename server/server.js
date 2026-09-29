@@ -8,9 +8,6 @@ const { connectDB } = require('./src/config/db');
 // Load environment variables
 dotenv.config();
 
-console.log('ANTHROPIC_API_KEY present:', !!process.env.ANTHROPIC_API_KEY);
-console.log('ANTHROPIC_API_KEY length:', process.env.ANTHROPIC_API_KEY?.length || 0);
-
 // Initialize Express app
 const app = express();
 
@@ -51,6 +48,7 @@ const questionRoutes = require('./src/routes/questionRoutes');
 const attemptRoutes = require('./src/routes/attemptRoutes');
 const adminRoutes = require('./src/routes/adminRoutes');
 const courseRoutes = require('./src/routes/courseRoutes');
+const subjectRoutes = require('./src/routes/subjectRoutes');
 const { testEmailDebug } = require('./src/services/emailService');
 
 app.get('/api/test-email', testEmailDebug);
@@ -61,6 +59,7 @@ app.use('/api/questions', questionRoutes);
 app.use('/api/attempts', attemptRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/courses', courseRoutes);
+app.use('/api/subjects', subjectRoutes);
 
 // Root route redirect/welcome
 app.get('/', (req, res) => {

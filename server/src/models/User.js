@@ -45,6 +45,23 @@ const userSchema = new mongoose.Schema(
     lastOtpSentAt: {
       type: Date,
     },
+    resetPasswordOtp: {
+      type: String,
+      select: false,
+    },
+    resetPasswordOtpExpiry: {
+      type: Date,
+    },
+    lastResetOtpSentAt: {
+      type: Date,
+    },
+    resetPasswordToken: {
+      type: String,
+      select: false,
+    },
+    resetPasswordTokenExpiry: {
+      type: Date,
+    },
     isBlocked: {
       type: Boolean,
       default: false,

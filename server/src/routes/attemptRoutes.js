@@ -7,6 +7,7 @@ const {
   submitAttempt,
   getStudentAttempts,
   getAttemptResult,
+  getAttemptReview,
   getPendingReviews,
   gradeEssayAnswer,
   downloadCertificatePDF,
@@ -24,6 +25,7 @@ router.get('/my-attempts', getStudentAttempts);
 // Results & Manual Grading Endpoints
 router.get('/pending-reviews', authorize('admin', 'teacher'), getPendingReviews);
 router.get('/:id/result', getAttemptResult);
+router.get('/:attemptId/review', getAttemptReview);
 router.get('/:id/certificate', downloadCertificatePDF);
 router.post('/:id/grade-essay', authorize('admin', 'teacher'), gradeEssayAnswer);
 
