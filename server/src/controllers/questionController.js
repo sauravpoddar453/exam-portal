@@ -436,8 +436,22 @@ const { parseDocumentQuestions } = require('../services/pdfParserService');
  * @access  Private (Admin, Teacher)
  */
 const importDocumentQuestions = async (req, res, next) => {
+  console.log('====================================================');
+  console.log('[IMPORT DOCUMENT BACKEND CONTROLLER] Incoming Request:');
+  console.log('[IMPORT DOCUMENT REQ BODY]:', req.body);
+  console.log('[IMPORT DOCUMENT REQ FILE]:', req.file ? {
+    fieldname: req.file.fieldname,
+    originalname: req.file.originalname,
+    mimetype: req.file.mimetype,
+    size: req.file.size,
+    hasBuffer: !!req.file.buffer,
+    bufferLength: req.file.buffer ? req.file.buffer.length : 0,
+  } : 'NO FILE ATTACHED');
+  console.log('====================================================');
+
   try {
     if (!req.file || !req.file.buffer) {
+      console.log('[IMPORT DOCUMENT VALIDATION FAIL]: Missing req.file or req.file.buffer');
       return res.status(400).json({
         success: false,
         message: 'Please upload a valid PDF (.pdf) or Word (.docx) file.',
@@ -450,6 +464,7 @@ const importDocumentQuestions = async (req, res, next) => {
       req.file.mimetype || ''
     );
 
+    console.log('[IMPORT DOCUMENT SUCCESS]: Extracted', result.totalParsed, 'questions via', result.parseMethod);
     return res.status(200).json({
       success: true,
       count: result.totalParsed,
@@ -459,6 +474,11 @@ const importDocumentQuestions = async (req, res, next) => {
       data: result.questions,
     });
   } catch (error) {
+    console.error('[IMPORT DOCUMENT CONTROLLER ERROR REASON]:', {
+      message: error.message,
+      statusCode: error.statusCode,
+      stack: error.stack,
+    });
     if (error.statusCode) {
       return res.status(error.statusCode).json({
         success: false,

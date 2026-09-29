@@ -409,7 +409,8 @@ function parseFreeFormHeuristic(rawText) {
   const text = rawText.replace(/\r\n/g, '\n');
 
   // 1. Separate Questions Region vs Answer Key Region
-  const answerKeyMatch = text.match(/\n\s*(?:Answer\s*Key|Answers|Explanations|Solutions|Solution\s*Key)\b/i);
+  const answerKeyRegex = /(?:\n|^)\s*(?:Answer\s*Key\s*(?:&|and)?\s*Explanations?|Answer\s*Key|Answers|Explanations|Solutions|Solution\s*Key)\b/i;
+  const answerKeyMatch = text.match(answerKeyRegex);
   let questionsSection = text;
   let answerKeySection = '';
 
@@ -418,21 +419,36 @@ function parseFreeFormHeuristic(rawText) {
     answerKeySection = text.substring(answerKeyMatch.index);
   }
 
+  console.log('====================================================');
+  console.log('[HEURISTIC_PARSER_DIAGNOSTIC] Splitting Document Regions:');
+  console.log('[TOTAL RAW TEXT LENGTH]:', text.length, 'chars');
+  console.log('[ANSWER KEY MATCH FOUND]:', !!answerKeyMatch, answerKeyMatch ? `"${answerKeyMatch[0].trim()}" at char ${answerKeyMatch.index}` : 'NONE');
+  console.log('[QUESTIONS SECTION LENGTH]:', questionsSection.length, 'chars');
+  console.log('[ANSWER KEY SECTION LENGTH]:', answerKeySection.length, 'chars');
+  if (answerKeySection) {
+    console.log('[ANSWER KEY SECTION RAW TEXT (first 1500 chars)]:\n', answerKeySection.substring(0, 1500));
+  }
+  console.log('====================================================');
+
   // 2. Parse Answer Key Map (questionNumber -> { ansLetter, ansText, explanation })
   const answerKeyMap = new Map();
   if (answerKeySection) {
-    const answerEntries = answerKeySection.split(/(?=\n\s*\d+[\.\)])/);
+    // Attempt A: Line/Block splits by question number boundary
+    const answerEntries = answerKeySection.split(/(?=\n\s*(?:Q\s*\d+|Question\s*\d+|\d+)[\.\)\:\s])/i);
     for (let entry of answerEntries) {
       entry = entry.trim();
       if (!entry) continue;
 
-      const numMatch = entry.match(/^(?:(\d+)[\.\)]|Q(\d+)[\.\:]|Question\s*(\d+)[\.\:]\s*)/i);
+      const numMatch = entry.match(/^(?:Q\s*(\d+)|Question\s*(\d+)|\[?(\d+)\]?[\.\)\:\s])/i);
       const qNum = numMatch ? parseInt(numMatch[1] || numMatch[2] || numMatch[3], 10) : null;
 
-      const ansLetterMatch = entry.match(/(?:Answer\s*:|Ans\s*:|Key\s*:)\s*(?:\(([A-Da-d])\)|([A-Da-d])[\)\.\:]?)\s*(.*?)(?:\n|$)/i)
-                           || entry.match(/\b([A-Da-d])[\)\.]\s*(.*?)(?:\n|$)/i);
-      const ansLetter = ansLetterMatch ? (ansLetterMatch[1] || ansLetterMatch[2] || '').toUpperCase() : '';
-      let ansText = ansLetterMatch ? (ansLetterMatch[3] || ansLetterMatch[2] || '').trim() : '';
+      const ansMatch =
+        entry.match(/(?:Answer\s*:|Ans\s*:|Key\s*:)\s*(?:\(([A-Da-d])\)|([A-Da-d])[\)\.\:]?|Option\s*([A-Da-d]))\s*(.*?)(?:\n|$)/i) ||
+        entry.match(/^(?:Q\s*\d+|Question\s*\d+|\d+)[\.\)\:\s]+\s*(?:\(([A-Da-d])\)|([A-Da-d])[\)\.\:]|Option\s*([A-Da-d]))\s*(.*?)(?:\n|$)/i) ||
+        entry.match(/\b([A-Da-d])[\)\.]\s*(.*?)(?:\n|$)/i);
+
+      const ansLetter = ansMatch ? (ansMatch[1] || ansMatch[2] || ansMatch[3] || '').toUpperCase() : '';
+      let ansText = ansMatch ? (ansMatch[4] || ansMatch[2] || '').trim() : '';
 
       let explanation = '';
       const expMatch = entry.match(/(?:Explanation|Solution)\s*:\s*([\s\S]+)/i);
@@ -449,12 +465,41 @@ function parseFreeFormHeuristic(rawText) {
         answerKeyMap.set(qNum, { ansLetter, ansText, explanation });
       }
     }
+
+    // Attempt B: Grid matcher if map is empty
+    if (answerKeyMap.size === 0) {
+      const gridMatches = [...answerKeySection.matchAll(/(?:Q|Question)?\s*(\d+)[\.\)\:\-]\s*(?:\(([A-Da-d])\)|Option\s*([A-Da-d])|([A-Da-d]))\b/gi)];
+      for (const gm of gridMatches) {
+        const gNum = parseInt(gm[1], 10);
+        const gLetter = (gm[2] || gm[3] || gm[4] || '').toUpperCase();
+        if (gNum && gLetter && !answerKeyMap.has(gNum)) {
+          answerKeyMap.set(gNum, { ansLetter: gLetter, ansText: '', explanation: '' });
+        }
+      }
+    }
+  }
+
+  console.log('[HEURISTIC_PARSER_DIAGNOSTIC] Extracted Answer Key Map entries count:', answerKeyMap.size);
+
+  // 3. Skip Document Title / Header Lines at top before the first question
+  let documentTitleTopic = 'General';
+  const firstQMatch = questionsSection.match(/(?:\n|^)\s*(?:Q\s*\d{1,3}[\.\:\-]|Question\s*\d{1,3}[\.\:\-]|\[?\d{1,3}\]?[\.\)\:]\s+|\d{1,3}[\.\)\:]\s+)/i);
+
+  if (firstQMatch && firstQMatch.index !== undefined && firstQMatch.index > 0) {
+    const headerChunk = questionsSection.substring(0, firstQMatch.index).trim();
+    questionsSection = questionsSection.substring(firstQMatch.index).trim();
+
+    const headerLines = headerChunk.split('\n').map(l => l.trim()).filter(Boolean);
+    if (headerLines.length > 0 && headerLines[0].length < 80) {
+      documentTitleTopic = headerLines[0].replace(/^[\#\*\_]+/, '').trim();
+    }
+    console.log('[HEURISTIC_PARSER_DIAGNOSTIC] Top document header skipped:', headerLines.length, 'line(s). Detected title topic:', `"${documentTitleTopic}"`);
   }
 
   // 3. Split Questions Region by candidate blocks (blank lines OR question number boundaries)
   const candidateBlocks = questionsSection.split(/(?:\n\s*\n|(?=\n\s*(?:Q\s*\d*[\.\:\-]|Question\s*\d+[\.\:\-]|\[?\d{1,3}\]?[\.\)\:]\s+)))/i);
   const results = [];
-  let currentTopic = 'General';
+  let currentTopic = documentTitleTopic || 'General';
   let autoQNum = 1;
 
   for (let block of candidateBlocks) {

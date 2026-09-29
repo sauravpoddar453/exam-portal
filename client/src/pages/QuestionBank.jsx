@@ -264,19 +264,28 @@ export default function QuestionBank() {
 
       const data = await res.json();
       if (res.ok && data.success) {
-        const parsedWithResolvedAnswers = (data.data || []).map(q => ({
+        console.log('[FRONTEND SUCCESS] Received document parsing response:', data);
+        console.log('[FRONTEND SUCCESS] Setting extracted questions:', data.data?.length, 'questions');
+        const parsedWithResolvedAnswers = (data.data || []).map((q, idx) => ({
           ...q,
+          isIncluded: q.isIncluded !== undefined ? q.isIncluded : true,
+          tempId: q.tempId || `q-parsed-${Date.now()}-${idx}`,
           correctAnswer: resolveInitialCorrectAnswer(q),
           subject: q.subject || q.sectionTopic || 'General',
         }));
+        console.log('[FRONTEND SUCCESS] Transformed parsed questions for review screen:', parsedWithResolvedAnswers.length, 'items');
         setPdfParsedQuestions(parsedWithResolvedAnswers);
         setPdfParseMethod(data.parseMethod || 'fixed-template');
         resetPdfModalState();
         setShowPdfReviewModal(true);
+        console.log('[FRONTEND SUCCESS] Set showPdfReviewModal to true!');
       } else {
+        console.error('[WORD IMPORT FRONTEND ERROR DATA]:', data);
+        console.error('[WORD IMPORT FRONTEND HTTP STATUS]:', res.status);
         setPdfError(data.message || 'Failed to parse questions from document.');
       }
     } catch (err) {
+      console.error('[WORD IMPORT FRONTEND CATCH ERROR]:', err);
       setPdfError('Connection error while processing document: ' + err.message);
     } finally {
       setPdfParsing(false);
@@ -1213,6 +1222,269 @@ export default function QuestionBank() {
                 {pdfParsing ? 'Parsing Document...' : 'Extract & Preview'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: REVIEW EXTRACTED QUESTIONS FROM DOCUMENT --- */}
+      {showPdfReviewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+          <div className="bg-[#171545] max-w-5xl w-full p-6 space-y-6 border border-amber-500/20 rounded-2xl shadow-2xl relative text-white max-h-[92vh] flex flex-col">
+            
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-indigo-900/40 pb-4 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Review Extracted Questions ({pdfParsedQuestions.length})</h3>
+                  <p className="text-xs text-[#a5a3c9]">
+                    Parsed via <span className="font-mono text-amber-400 uppercase">{pdfParseMethod}</span> engine. Review, edit, select, and assign subjects before importing.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowPdfReviewModal(false)}
+                className="text-[#a5a3c9] hover:text-white p-1 rounded-lg hover:bg-indigo-900/40 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Selection & Bulk Actions Control Bar */}
+            <div className="glass-card p-3 border border-amber-500/15 flex flex-wrap items-center justify-between gap-3 flex-shrink-0 text-xs">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => toggleSelectAllPdf(true)}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-950 border border-indigo-800 text-amber-400 hover:text-white font-semibold cursor-pointer"
+                >
+                  Select All ({pdfParsedQuestions.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleSelectAllPdf(false)}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-950 border border-indigo-800 text-[#a5a3c9] hover:text-white font-semibold cursor-pointer"
+                >
+                  Deselect All
+                </button>
+                <span className="text-xs font-mono text-[#a5a3c9] ml-2">
+                  {pdfParsedQuestions.filter(q => q.isIncluded).length} Selected for Import
+                </span>
+              </div>
+
+              {/* Bulk Subject Tagging */}
+              <div className="flex items-center gap-2">
+                <span className="text-[#a5a3c9] font-medium">Bulk Assign Subject:</span>
+                <select
+                  value={bulkSubjectValue}
+                  onChange={(e) => setBulkSubjectValue(e.target.value)}
+                  className="px-3 py-1.5 rounded-xl bg-indigo-950 border border-indigo-800 text-white font-semibold cursor-pointer focus:border-amber-400 focus:outline-none"
+                >
+                  <option value="">Select Subject...</option>
+                  {allSubjectNames.map(sName => (
+                    <option key={sName} value={sName}>{sName}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleApplyBulkSubjectToTopic}
+                  className="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 hover:bg-amber-500 hover:text-indigo-950 font-bold transition-all cursor-pointer"
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+
+            {/* Questions Scrollable List */}
+            <div className="flex-grow overflow-y-auto space-y-4 pr-1">
+              {pdfParsedQuestions.map((q, index) => {
+                const isChecked = q.isIncluded !== false;
+                return (
+                  <div
+                    key={q.tempId || index}
+                    className={`glass-card p-4 border transition-colors space-y-3 ${
+                      isChecked
+                        ? 'border-amber-500/30 bg-indigo-950/40'
+                        : 'border-indigo-900/40 opacity-50 bg-indigo-950/10'
+                    }`}
+                  >
+                    {/* Header Row */}
+                    <div className="flex items-center justify-between gap-3 border-b border-indigo-900/40 pb-2.5">
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => togglePdfQuestionSelection(q.tempId)}
+                          className="rounded border-indigo-700 bg-indigo-950 text-amber-400 focus:ring-amber-400 cursor-pointer"
+                        />
+                        <span className="font-bold text-white text-xs font-mono">
+                          Question #{index + 1}
+                        </span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                          {getTypeBadge(q.type)}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {q.hasWarning && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-300 border border-rose-500/20 flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" />
+                            {q.warnings[0]}
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => removePdfQuestionCard(q.tempId)}
+                          className="p-1 text-rose-400 hover:text-white rounded hover:bg-rose-500/20 cursor-pointer"
+                          title="Remove Question"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Question Prompt */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-[#a5a3c9] mb-1">Question Prompt Statement</label>
+                      <textarea
+                        rows={2}
+                        value={q.questionText || ''}
+                        onChange={(e) => updatePdfQuestion(q.tempId, 'questionText', e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl bg-indigo-950 border border-indigo-800 text-xs text-white focus:border-amber-400 focus:outline-none"
+                      />
+                    </div>
+
+                    {/* MCQ Options / True-False Section */}
+                    {(q.type === 'mcq-single' || q.type === 'mcq-multiple') && (
+                      <div className="space-y-2 p-3 rounded-xl bg-indigo-950/60 border border-indigo-900/40 text-xs">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-semibold text-white">MCQ Choices (Radio Selects Correct Answer):</span>
+                          <button
+                            type="button"
+                            onClick={() => handlePdfAddOption(q.tempId)}
+                            className="text-[11px] text-amber-400 hover:underline font-semibold"
+                          >
+                            + Add Option
+                          </button>
+                        </div>
+
+                        {(q.options || []).map((optText, optIdx) => (
+                          <div key={optIdx} className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name={`correct-pdf-${q.tempId}`}
+                              checked={q.correctAnswer === optText}
+                              onChange={() => updatePdfQuestion(q.tempId, 'correctAnswer', optText)}
+                              className="text-amber-400 focus:ring-amber-400 cursor-pointer"
+                            />
+                            <input
+                              type="text"
+                              value={optText}
+                              onChange={(e) => updatePdfOptionText(q.tempId, optIdx, e.target.value)}
+                              className="flex-grow px-3 py-1.5 rounded-lg bg-indigo-950 border border-indigo-800 text-white text-xs"
+                            />
+                            {q.options.length > 2 && (
+                              <button
+                                type="button"
+                                onClick={() => handlePdfRemoveOption(q.tempId, optIdx)}
+                                className="text-rose-400 hover:text-white p-1"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {q.type === 'true-false' && (
+                      <div className="p-3 rounded-xl bg-indigo-950/60 border border-indigo-900/40 text-xs space-y-1">
+                        <span className="font-semibold text-white block mb-1">Select Correct True / False Answer:</span>
+                        <div className="flex gap-4">
+                          {['True', 'False'].map((tf) => (
+                            <label key={tf} className="flex items-center gap-2 cursor-pointer text-white font-medium">
+                              <input
+                                type="radio"
+                                name={`tf-pdf-${q.tempId}`}
+                                value={tf}
+                                checked={q.correctAnswer === tf}
+                                onChange={(e) => updatePdfQuestion(q.tempId, 'correctAnswer', e.target.value)}
+                                className="text-amber-400 focus:ring-amber-400"
+                              />
+                              <span>{tf}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Metadata Row: Subject, Difficulty, Marks */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs pt-1">
+                      <div>
+                        <label className="block text-[10px] font-semibold text-[#a5a3c9] mb-1">Subject</label>
+                        <select
+                          value={q.subject || 'General'}
+                          onChange={(e) => updatePdfQuestion(q.tempId, 'subject', e.target.value)}
+                          className="w-full px-3 py-1.5 rounded-xl bg-indigo-950 border border-indigo-800 text-white cursor-pointer"
+                        >
+                          {allSubjectNames.map(sName => (
+                            <option key={sName} value={sName}>{sName}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-semibold text-[#a5a3c9] mb-1">Difficulty</label>
+                        <select
+                          value={q.difficulty || 'medium'}
+                          onChange={(e) => updatePdfQuestion(q.tempId, 'difficulty', e.target.value)}
+                          className="w-full px-3 py-1.5 rounded-xl bg-indigo-950 border border-indigo-800 text-white cursor-pointer"
+                        >
+                          <option value="easy">Easy</option>
+                          <option value="medium">Medium</option>
+                          <option value="hard">Hard</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-semibold text-[#a5a3c9] mb-1">Marks</label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={q.marks || 1}
+                          onChange={(e) => updatePdfQuestion(q.tempId, 'marks', Number(e.target.value))}
+                          className="w-full px-3 py-1.5 rounded-xl bg-indigo-950 border border-indigo-800 text-white"
+                        />
+                      </div>
+                    </div>
+
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Modal Actions Footer */}
+            <div className="flex gap-3 pt-4 border-t border-indigo-900/40 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowPdfReviewModal(false)}
+                className="w-1/2 py-2.5 rounded-xl bg-indigo-950 border border-indigo-800 text-[#a5a3c9] hover:text-white font-semibold text-xs cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmPdfImport}
+                disabled={pdfImporting || pdfParsedQuestions.filter(q => q.isIncluded).length === 0}
+                className="w-1/2 py-2.5 rounded-xl bg-amber-500 text-indigo-950 font-bold hover:bg-amber-400 text-xs shadow-md shadow-amber-500/20 disabled:opacity-50 cursor-pointer"
+              >
+                {pdfImporting ? 'Saving to Question Bank...' : `Confirm & Save (${pdfParsedQuestions.filter(q => q.isIncluded).length}) Questions`}
+              </button>
+            </div>
+
           </div>
         </div>
       )}
