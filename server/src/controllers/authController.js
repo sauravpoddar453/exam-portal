@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const User = require('../models/User');
+const AuthLog = require('../models/AuthLog');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { getDBStatus } = require('../config/db');
@@ -9,6 +10,24 @@ const {
   sendForgotPasswordOtpEmail,
   sendPasswordResetSuccessEmail,
 } = require('../services/emailService');
+
+const logAuthAttempt = async (req, email, success, reason, user = null) => {
+  try {
+    if (getDBStatus() === 'Connected') {
+      const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '127.0.0.1';
+      await AuthLog.create({
+        user: user ? user._id : undefined,
+        email: email ? email.toLowerCase().trim() : 'unknown',
+        success,
+        reason,
+        ipAddress: clientIp.toString(),
+        role: user ? user.role : 'student',
+      });
+    }
+  } catch (err) {
+    console.error('[AuthLog] Error logging auth attempt:', err.message);
+  }
+};
 
 // In-memory mock database for fallback testing when MongoDB is disconnected
 const MOCK_USER_DATABASE = [
@@ -273,6 +292,7 @@ const loginUser = async (req, res, next) => {
     if (getDBStatus() === 'Connected') {
       const user = await User.findOne({ email: cleanEmail }).select('+password');
       if (!user) {
+        logAuthAttempt(req, cleanEmail, false, 'User not found');
         return res.status(401).json({
           success: false,
           message: 'Invalid credentials. User not found.',
@@ -281,6 +301,7 @@ const loginUser = async (req, res, next) => {
 
       const isMatch = await user.matchPassword(password);
       if (!isMatch) {
+        logAuthAttempt(req, cleanEmail, false, 'Incorrect password', user);
         return res.status(401).json({
           success: false,
           message: 'Invalid credentials. Password incorrect.',
@@ -289,6 +310,7 @@ const loginUser = async (req, res, next) => {
 
       // Check if account is blocked/suspended
       if (user.isBlocked) {
+        logAuthAttempt(req, cleanEmail, false, 'Account suspended/blocked', user);
         return res.status(403).json({
           success: false,
           message: 'Your account has been suspended. Contact admin for details.',
@@ -297,6 +319,7 @@ const loginUser = async (req, res, next) => {
 
       // Check if user email is verified
       if (!user.isVerified) {
+        logAuthAttempt(req, cleanEmail, false, 'Email unverified', user);
         return res.status(401).json({
           success: false,
           requiresVerification: true,
@@ -305,6 +328,7 @@ const loginUser = async (req, res, next) => {
         });
       }
 
+      logAuthAttempt(req, cleanEmail, true, 'Login successful', user);
       return sendTokenResponse(user, 200, res);
     }
 

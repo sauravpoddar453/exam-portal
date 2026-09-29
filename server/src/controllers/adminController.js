@@ -3,8 +3,12 @@ const Exam = require('../models/Exam');
 const Course = require('../models/Course');
 const Attempt = require('../models/Attempt');
 const Question = require('../models/Question');
+const AuthLog = require('../models/AuthLog');
+const Report = require('../models/Report');
+const Broadcast = require('../models/Broadcast');
+const Setting = require('../models/Setting');
 const { getDBStatus } = require('../config/db');
-const { sendTeacherApprovalEmail, sendTeacherRejectionEmail } = require('../services/emailService');
+const { sendEmail, sendTeacherApprovalEmail, sendTeacherRejectionEmail } = require('../services/emailService');
 
 /**
  * @desc    Get executive overview stats, growth trends, and recent activity feed (Admin)
@@ -1129,4 +1133,486 @@ module.exports = {
   deleteAdminCourse,
   flagExam,
   getProctorAudit,
+};
+
+/**
+ * @desc    Get system & login logs (AuthLog)
+ * @route   GET /api/admin/logs
+ * @access  Private (Admin)
+ */
+const getSystemLogs = async (req, res, next) => {
+  try {
+    const { type = 'all', limit = 100 } = req.query;
+    if (getDBStatus() === 'Connected') {
+      let query = {};
+      if (type === 'failed') query.success = false;
+      if (type === 'success') query.success = true;
+
+      const logs = await AuthLog.find(query)
+        .populate('user', 'name email role')
+        .sort({ createdAt: -1 })
+        .limit(parseInt(limit, 10) || 100);
+
+      return res.status(200).json({ success: true, count: logs.length, data: logs });
+    }
+    return res.status(200).json({ success: true, count: 0, data: [] });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * @desc    Get platform usage metrics & counters
+ * @route   GET /api/admin/platform-usage
+ * @access  Private (Admin)
+ */
+const getPlatformUsage = async (req, res, next) => {
+  try {
+    if (getDBStatus() === 'Connected') {
+      const userCount = await User.countDocuments({});
+      const courseCount = await Course.countDocuments({});
+      const examCount = await Exam.countDocuments({});
+      const attemptCount = await Attempt.countDocuments({});
+      const questionCount = await Question.countDocuments({});
+
+      const pdfParseSetting = await Setting.findOne({ key: 'pdfParseCount' });
+      const emailSentSetting = await Setting.findOne({ key: 'emailSentCount' });
+
+      // Rough estimate of DB storage in KB
+      const estimatedDbSizeKb = Math.round((userCount * 2 + courseCount * 3 + examCount * 5 + attemptCount * 8 + questionCount * 4));
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          userCount,
+          courseCount,
+          examCount,
+          attemptCount,
+          questionCount,
+          estimatedDbSizeKb,
+          pdfParseCount: pdfParseSetting ? pdfParseSetting.value || 0 : 0,
+          emailSentCount: emailSentSetting ? emailSentSetting.value || 0 : 0,
+        },
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      data: { userCount: 0, courseCount: 0, examCount: 0, attemptCount: 0, questionCount: 0, estimatedDbSizeKb: 0, pdfParseCount: 0, emailSentCount: 0 },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * @desc    Get question reports list
+ * @route   GET /api/admin/reports
+ * @access  Private (Admin)
+ */
+const getQuestionReports = async (req, res, next) => {
+  try {
+    const { status = 'all' } = req.query;
+    if (getDBStatus() === 'Connected') {
+      let query = {};
+      if (status !== 'all') query.status = status;
+
+      const reports = await Report.find(query)
+        .populate({
+          path: 'question',
+          select: 'questionText type subject difficulty options correctAnswer correctAnswers',
+        })
+        .populate('reportedBy', 'name email role')
+        .sort({ createdAt: -1 });
+
+      return res.status(200).json({ success: true, count: reports.length, data: reports });
+    }
+    return res.status(200).json({ success: true, count: 0, data: [] });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * @desc    Resolve or dismiss a question report
+ * @route   PUT /api/admin/reports/:id/status
+ * @access  Private (Admin)
+ */
+const updateReportStatus = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (getDBStatus() === 'Connected') {
+      const report = await Report.findById(id);
+      if (!report) return res.status(404).json({ success: false, message: 'Report not found' });
+
+      report.status = status || 'resolved';
+      await report.save();
+
+      return res.status(200).json({ success: true, message: `Report marked as ${report.status}`, data: report });
+    }
+    return res.status(400).json({ success: false, message: 'DB disconnected' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * @desc    Get Question Quality Audit (missing answers or unused questions)
+ * @route   GET /api/admin/question-quality
+ * @access  Private (Admin)
+ */
+const getQuestionQualityAudit = async (req, res, next) => {
+  try {
+    if (getDBStatus() === 'Connected') {
+      const allQuestions = await Question.find({}).populate('createdBy', 'name email');
+
+      // 1. Missing correct answer
+      const missingAnswerQuestions = allQuestions.filter(q => {
+        if (q.type === 'mcq-single' || q.type === 'short-answer') {
+          return !q.correctAnswer || String(q.correctAnswer).trim() === '';
+        } else if (q.type === 'mcq-multiple') {
+          return !Array.isArray(q.correctAnswers) || q.correctAnswers.length === 0;
+        }
+        return false;
+      });
+
+      // 2. Unused questions
+      const allExams = await Exam.find({}, 'questions.question');
+      const usedQuestionIds = new Set();
+      allExams.forEach(e => {
+        e.questions?.forEach(item => {
+          if (item.question) usedQuestionIds.add(String(item.question));
+        });
+      });
+
+      const unusedQuestions = allQuestions.filter(q => !usedQuestionIds.has(String(q._id)));
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          missingAnswerQuestions,
+          unusedQuestions,
+          totalQuestionsCount: allQuestions.length,
+        },
+      });
+    }
+    return res.status(200).json({ success: true, data: { missingAnswerQuestions: [], unusedQuestions: [], totalQuestionsCount: 0 } });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * @desc    Send broadcast announcement via email
+ * @route   POST /api/admin/broadcast
+ * @access  Private (Admin)
+ */
+const sendBroadcastAnnouncement = async (req, res, next) => {
+  try {
+    const { message, audience } = req.body;
+    if (!message || !message.trim()) {
+      return res.status(400).json({ success: false, message: 'Broadcast message content is required.' });
+    }
+
+    const targetAudience = audience || 'all';
+
+    if (getDBStatus() === 'Connected') {
+      let query = { isVerified: true };
+      if (targetAudience === 'teacher') query.role = 'teacher';
+      if (targetAudience === 'student') query.role = 'student';
+
+      const targetUsers = await User.find(query).select('email name');
+      const recipientEmails = targetUsers.map(u => u.email).filter(Boolean);
+
+      const batchSize = 5;
+      let sentSuccessCount = 0;
+
+      for (let i = 0; i < recipientEmails.length; i += batchSize) {
+        const batch = recipientEmails.slice(i, i + batchSize);
+        await Promise.all(
+          batch.map(async (toEmail) => {
+            const result = await sendEmail({
+              to: toEmail,
+              subject: '📢 System Announcement - ExamPortal Platform Update',
+              html: `
+                <div style="font-family: Arial, sans-serif; background-color: #0b0a26; color: #f4f4f8; padding: 30px; border-radius: 12px;">
+                  <h2 style="color: #f5a623;">📢 Announcement from ExamPortal Admin</h2>
+                  <p style="font-size: 15px; line-height: 1.6; color: #e2e8f0;">${message.replace(/\n/g, '<br/>')}</p>
+                  <hr style="border: 0; border-top: 1px solid rgba(245,166,35,0.2); margin: 20px 0;" />
+                  <p style="font-size: 11px; color: #a5a3c9;">This is an automated broadcast sent by ExamPortal Administration.</p>
+                </div>
+              `,
+              text: message,
+            });
+            if (result && result.success) sentSuccessCount++;
+          })
+        );
+        if (i + batchSize < recipientEmails.length) {
+          await new Promise(r => setTimeout(r, 200));
+        }
+      }
+
+      const broadcastLog = await Broadcast.create({
+        message,
+        audience: targetAudience,
+        sentBy: req.user._id,
+        sentCount: sentSuccessCount,
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: `Broadcast message sent to ${sentSuccessCount} recipient(s).`,
+        data: broadcastLog,
+      });
+    }
+
+    return res.status(200).json({ success: true, message: 'Broadcast sent (Mock Mode).' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * @desc    Get broadcast history list
+ * @route   GET /api/admin/broadcasts
+ * @access  Private (Admin)
+ */
+const getBroadcastHistory = async (req, res, next) => {
+  try {
+    if (getDBStatus() === 'Connected') {
+      const history = await Broadcast.find({})
+        .populate('sentBy', 'name email')
+        .sort({ createdAt: -1 });
+
+      return res.status(200).json({ success: true, count: history.length, data: history });
+    }
+    return res.status(200).json({ success: true, count: 0, data: [] });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * @desc    Get average score percentage per subject across platform
+ * @route   GET /api/admin/analytics/subject-performance
+ * @access  Private (Admin)
+ */
+const getSubjectPerformanceAnalytics = async (req, res, next) => {
+  try {
+    if (getDBStatus() === 'Connected') {
+      const attempts = await Attempt.find({ status: { $in: ['submitted', 'timed-out'] } });
+
+      const subjectStatsMap = new Map();
+
+      for (const attempt of attempts) {
+        if (!attempt.answers || attempt.answers.length === 0) continue;
+        for (const ans of attempt.answers) {
+          const subject = ans.subject || 'General';
+          if (!subjectStatsMap.has(subject)) {
+            subjectStatsMap.set(subject, { subject, totalObtained: 0, totalMarks: 0, count: 0 });
+          }
+          const item = subjectStatsMap.get(subject);
+          item.totalObtained += (ans.marksObtained || 0);
+          item.totalMarks += (ans.marks || 1);
+          item.count += 1;
+        }
+      }
+
+      const subjectPerformance = Array.from(subjectStatsMap.values()).map(item => ({
+        subject: item.subject,
+        avgPercentage: item.totalMarks > 0 ? Math.round((item.totalObtained / item.totalMarks) * 100) : 0,
+        totalQuestionsAnswered: item.count,
+      })).sort((a, b) => b.avgPercentage - a.avgPercentage);
+
+      return res.status(200).json({ success: true, data: subjectPerformance });
+    }
+    return res.status(200).json({ success: true, data: [] });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * @desc    Get teacher activity leaderboard
+ * @route   GET /api/admin/analytics/teacher-leaderboard
+ * @access  Private (Admin)
+ */
+const getTeacherLeaderboard = async (req, res, next) => {
+  try {
+    if (getDBStatus() === 'Connected') {
+      const teachers = await User.find({ role: 'teacher' }).select('name email createdAt');
+      const leaderboard = [];
+
+      for (const t of teachers) {
+        const coursesCreated = await Course.countDocuments({ teacher: t._id });
+        const teacherCourses = await Course.find({ teacher: t._id }, '_id');
+        const courseIds = teacherCourses.map(c => c._id);
+        const examsCreated = await Exam.countDocuments({ $or: [{ createdBy: t._id }, { course: { $in: courseIds } }] });
+        const teacherExams = await Exam.find({ $or: [{ createdBy: t._id }, { course: { $in: courseIds } }] }, '_id');
+        const examIds = teacherExams.map(e => e._id);
+        const totalSubmissions = await Attempt.countDocuments({ exam: { $in: examIds }, status: { $in: ['submitted', 'timed-out'] } });
+
+        leaderboard.push({
+          teacherId: t._id,
+          name: t.name,
+          email: t.email,
+          coursesCreated,
+          examsCreated,
+          totalSubmissions,
+          activityScore: coursesCreated * 10 + examsCreated * 5 + totalSubmissions,
+        });
+      }
+
+      leaderboard.sort((a, b) => b.activityScore - a.activityScore);
+
+      return res.status(200).json({ success: true, data: leaderboard });
+    }
+    return res.status(200).json({ success: true, data: [] });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * @desc    Get peak usage attempts grouped by hour of day (0 to 23)
+ * @route   GET /api/admin/analytics/peak-usage
+ * @access  Private (Admin)
+ */
+const getPeakUsageAnalytics = async (req, res, next) => {
+  try {
+    if (getDBStatus() === 'Connected') {
+      const attempts = await Attempt.find({}, 'createdAt startedAt');
+      const hourCounts = new Array(24).fill(0);
+
+      attempts.forEach(a => {
+        const dt = new Date(a.startedAt || a.createdAt);
+        const hour = dt.getHours();
+        if (hour >= 0 && hour < 24) {
+          hourCounts[hour] += 1;
+        }
+      });
+
+      const peakUsageData = hourCounts.map((count, hour) => ({
+        hour: `${hour.toString().padStart(2, '0')}:00`,
+        attempts: count,
+      }));
+
+      return res.status(200).json({ success: true, data: peakUsageData });
+    }
+    return res.status(200).json({ success: true, data: [] });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * @desc    Force logout a user by invalidating existing JWT tokens
+ * @route   PUT /api/admin/users/:id/force-logout
+ * @access  Private (Admin)
+ */
+const forceLogoutUser = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (getDBStatus() === 'Connected') {
+      const user = await User.findById(id);
+      if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+      user.tokenInvalidatedAt = new Date();
+      await user.save();
+
+      return res.status(200).json({
+        success: true,
+        message: `Force logged out ${user.name}. All active sessions for this account have been revoked.`,
+        data: user,
+      });
+    }
+    return res.status(400).json({ success: false, message: 'DB disconnected' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * @desc    Export platform data in CSV format (users, results, courses)
+ * @route   GET /api/admin/export/:type
+ * @access  Private (Admin)
+ */
+const exportDataCsv = async (req, res, next) => {
+  try {
+    const { type } = req.params;
+
+    if (getDBStatus() === 'Connected') {
+      if (type === 'users') {
+        const users = await User.find({}).select('-password').sort({ createdAt: -1 });
+        let csv = 'ID,Name,Email,Role,IsVerified,IsBlocked,TeacherStatus,CreatedAt\n';
+        users.forEach(u => {
+          csv += `"${u._id}","${u.name}","${u.email}","${u.role}",${u.isVerified},${u.isBlocked},"${u.teacherApprovalStatus || 'approved'}","${u.createdAt}"\n`;
+        });
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="export_users.csv"');
+        return res.send(csv);
+      } else if (type === 'courses') {
+        const courses = await Course.find({}).populate('teacher', 'name email');
+        let csv = 'ID,Title,EnrollmentCode,TeacherName,TeacherEmail,StudentsCount,IsUnderReview,CreatedAt\n';
+        courses.forEach(c => {
+          csv += `"${c._id}","${c.title}","${c.enrollmentCode}","${c.teacher?.name || ''}","${c.teacher?.email || ''}",${c.students?.length || 0},${c.isUnderReview},"${c.createdAt}"\n`;
+        });
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="export_courses.csv"');
+        return res.send(csv);
+      } else if (type === 'results') {
+        const attempts = await Attempt.find({ status: { $in: ['submitted', 'timed-out'] } })
+          .populate('student', 'name email')
+          .populate('exam', 'title code totalMarks');
+        let csv = 'AttemptID,CandidateName,CandidateEmail,ExamCode,ExamTitle,Score,TotalMarks,IsPassed,Status,SubmittedAt\n';
+        attempts.forEach(a => {
+          csv += `"${a._id}","${a.student?.name || ''}","${a.student?.email || ''}","${a.exam?.code || ''}","${a.exam?.title || ''}",${a.score || 0},${a.totalMarks || 100},${a.isPassed},"${a.status}","${a.submittedAt || a.createdAt}"\n`;
+        });
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="export_results.csv"');
+        return res.send(csv);
+      }
+    }
+    return res.status(400).json({ success: false, message: 'Export unavailable or DB disconnected' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = {
+  getAdminOverviewStats,
+  getTeacherOverviewStats,
+  debugTeacherStats,
+  getExamAnalytics,
+  getAllUsers,
+  blockUser,
+  unblockUser,
+  updateUserStatus,
+  updateUserRole,
+  deleteUser,
+  bulkBlockUsers,
+  bulkDeleteUsers,
+  bulkImportUsers,
+  getTeacherApprovals,
+  approveTeacher,
+  rejectTeacher,
+  getAdminCourses,
+  getAdminCourseById,
+  flagCourse,
+  deleteAdminCourse,
+  flagExam,
+  getProctorAudit,
+  getSystemLogs,
+  getPlatformUsage,
+  getQuestionReports,
+  updateReportStatus,
+  getQuestionQualityAudit,
+  sendBroadcastAnnouncement,
+  getBroadcastHistory,
+  getSubjectPerformanceAnalytics,
+  getTeacherLeaderboard,
+  getPeakUsageAnalytics,
+  forceLogoutUser,
+  exportDataCsv,
 };

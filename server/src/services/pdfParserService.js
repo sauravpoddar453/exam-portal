@@ -1,6 +1,7 @@
 const pdfParse = require('pdf-parse');
 const mammoth = require('mammoth');
 const https = require('https');
+const Setting = require('../models/Setting');
 
 /**
  * Safe Page Renderer for pdf-parse to prevent page-level font/stream crashes
@@ -31,6 +32,7 @@ function safePdfPageRender(pageData) {
  * Extract raw text from PDF Buffer using pdf-parse with fallback handling
  */
 async function extractTextFromPdf(pdfBuffer) {
+  Setting.incrementKey('pdfParseCount').catch(e => console.error(e.message));
   let rawText = '';
   let lastError = null;
 

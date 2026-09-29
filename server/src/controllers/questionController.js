@@ -1,5 +1,6 @@
 const Question = require('../models/Question');
 const Subject = require('../models/Subject');
+const Report = require('../models/Report');
 const { getDBStatus } = require('../config/db');
 
 // In-memory mock database for fallback testing when MongoDB is disconnected
@@ -546,6 +547,52 @@ EXPLANATION: Recursion occurs when a function calls itself.
   return res.send(templateContent);
 };
 
+/**
+ * @desc    Submit a question report (Student / User)
+ * @route   POST /api/questions/reports
+ * @access  Private (Student, Teacher, Admin)
+ */
+const reportQuestion = async (req, res, next) => {
+  try {
+    const { questionId, reason, comment } = req.body;
+
+    if (!questionId || !reason) {
+      return res.status(400).json({
+        success: false,
+        message: 'Question ID and report reason are required.',
+      });
+    }
+
+    if (getDBStatus() === 'Connected') {
+      const questionExists = await Question.findById(questionId);
+      if (!questionExists) {
+        return res.status(404).json({ success: false, message: 'Question not found' });
+      }
+
+      const report = await Report.create({
+        question: questionId,
+        reportedBy: req.user._id,
+        reason,
+        comment: comment || '',
+        status: 'pending',
+      });
+
+      return res.status(201).json({
+        success: true,
+        message: 'Report submitted successfully. Administrators have been notified.',
+        data: report,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Report submitted (Mock Mode).',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getQuestions,
   getQuestionById,
@@ -557,4 +604,5 @@ module.exports = {
   importPdfQuestions: importDocumentQuestions,
   downloadDocumentTemplate,
   downloadPdfTemplate: downloadDocumentTemplate,
+  reportQuestion,
 };

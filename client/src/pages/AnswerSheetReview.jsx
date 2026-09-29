@@ -17,7 +17,9 @@ import {
   ShieldCheck, 
   ExternalLink,
   AlertTriangle,
-  MessageSquare
+  MessageSquare,
+  Flag,
+  Check
 } from 'lucide-react';
 
 export default function AnswerSheetReview() {
@@ -27,6 +29,13 @@ export default function AnswerSheetReview() {
   const [reviewData, setReviewData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Report Question Modal State
+  const [reportTargetQuestion, setReportTargetQuestion] = useState(null);
+  const [reportReason, setReportReason] = useState('Incorrect Answer');
+  const [reportComment, setReportComment] = useState('');
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportSuccessMsg, setReportSuccessMsg] = useState(null);
 
   const fetchAttemptReview = useCallback(async () => {
     setLoading(true);
@@ -51,6 +60,44 @@ export default function AnswerSheetReview() {
   useEffect(() => {
     fetchAttemptReview();
   }, [fetchAttemptReview]);
+
+  const handleReportQuestionSubmit = async (e) => {
+    e.preventDefault();
+    if (!reportTargetQuestion) return;
+
+    setReportSubmitting(true);
+    setReportSuccessMsg(null);
+    try {
+      const qId = reportTargetQuestion.questionId || reportTargetQuestion.question || reportTargetQuestion._id;
+      const { ok, data } = await safeFetchJson('/api/questions/reports', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          questionId: qId,
+          reason: reportReason,
+          comment: reportComment,
+        }),
+      });
+
+      if (ok && data?.success) {
+        setReportSuccessMsg('Question report submitted to platform administrators successfully.');
+        setTimeout(() => {
+          setReportTargetQuestion(null);
+          setReportSuccessMsg(null);
+          setReportComment('');
+        }, 1800);
+      } else {
+        alert(data?.message || 'Failed to submit report');
+      }
+    } catch (err) {
+      alert('Error submitting report: ' + err.message);
+    } finally {
+      setReportSubmitting(false);
+    }
+  };
 
   if (loading) {
     return <BrandedLoader message="Loading candidate answer sheet & timing telemetry..." />;
@@ -254,9 +301,20 @@ export default function AnswerSheetReview() {
                     <span className="text-xs font-mono text-amber-400 font-bold uppercase">{item.type || 'MCQ'}</span>
                   </div>
 
-                  <span className="text-xs font-mono font-bold text-teal-400">
-                    Awarded: {item.marksAwarded || 0} Points
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setReportTargetQuestion(item)}
+                      className="px-2.5 py-1 rounded-lg bg-indigo-900/40 border border-amber-500/20 text-indigo-200 hover:text-amber-400 hover:border-amber-400/50 text-[11px] font-semibold transition-all flex items-center gap-1 cursor-pointer"
+                      title="Report an issue with this question to administrators"
+                    >
+                      <Flag className="w-3 h-3 text-amber-400" />
+                      <span>Report Question</span>
+                    </button>
+
+                    <span className="text-xs font-mono font-bold text-teal-400">
+                      Awarded: {item.marksAwarded || 0} Points
+                    </span>
+                  </div>
                 </div>
 
                 <p className="text-sm font-bold text-white leading-relaxed">
@@ -293,6 +351,95 @@ export default function AnswerSheetReview() {
           })}
         </div>
       </div>
+
+      {/* --- MODAL: REPORT QUESTION FORM --- */}
+      {reportTargetQuestion && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <form 
+            onSubmit={handleReportQuestionSubmit}
+            className="bg-[#171545] max-w-md w-full p-6 space-y-4 border border-amber-500/20 rounded-2xl shadow-2xl relative text-white"
+          >
+            <div className="flex items-center justify-between border-b border-indigo-900/40 pb-3">
+              <div className="flex items-center gap-2">
+                <Flag className="w-5 h-5 text-amber-400" />
+                <h3 className="text-base font-bold text-white">Report Question Issue</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setReportTargetQuestion(null);
+                  setReportSuccessMsg(null);
+                }}
+                className="text-[#a5a3c9] hover:text-white text-xs"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-3 rounded-xl bg-indigo-950/60 border border-indigo-900/60 text-xs">
+              <span className="text-[#a5a3c9] block mb-1">Question Prompt:</span>
+              <p className="text-white font-semibold line-clamp-2">
+                {reportTargetQuestion.questionText || 'Selected Question'}
+              </p>
+            </div>
+
+            {reportSuccessMsg ? (
+              <div className="p-3 rounded-xl bg-teal-500/15 border border-teal-500/30 text-teal-300 text-xs font-semibold flex items-center gap-2">
+                <Check className="w-4 h-4 text-teal-400 shrink-0" />
+                <span>{reportSuccessMsg}</span>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-xs font-semibold text-[#a5a3c9] mb-1">
+                    Reason for Reporting *
+                  </label>
+                  <select
+                    value={reportReason}
+                    onChange={(e) => setReportReason(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-indigo-950 border border-indigo-800 text-xs text-white focus:border-amber-400 focus:outline-none cursor-pointer"
+                  >
+                    <option value="Incorrect Answer">Incorrect Answer / Wrong Key</option>
+                    <option value="Unclear Question">Unclear Question / Ambiguous</option>
+                    <option value="Typo/Error">Typo or Formatting Error</option>
+                    <option value="Other">Other Reason</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-[#a5a3c9] mb-1">
+                    Additional Comments (Optional)
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Provide details about why this question or answer is incorrect..."
+                    value={reportComment}
+                    onChange={(e) => setReportComment(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-indigo-950 border border-indigo-800 text-xs text-white focus:border-amber-400 focus:outline-none placeholder:text-[#a5a3c9]"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setReportTargetQuestion(null)}
+                    className="w-1/2 py-2.5 rounded-xl bg-indigo-950 border border-indigo-800 text-[#a5a3c9] hover:text-white text-xs font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={reportSubmitting}
+                    className="w-1/2 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-indigo-950 font-bold text-xs shadow-md transition-colors disabled:opacity-50"
+                  >
+                    {reportSubmitting ? 'Submitting...' : 'Submit Report'}
+                  </button>
+                </div>
+              </>
+            )}
+          </form>
+        </div>
+      )}
 
     </div>
   );

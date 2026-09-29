@@ -61,6 +61,16 @@ const protect = async (req, res, next) => {
       });
     }
 
+    if (req.user && req.user.tokenInvalidatedAt && decoded.iat) {
+      const tokenIssuedAt = new Date(decoded.iat * 1000);
+      if (tokenIssuedAt < req.user.tokenInvalidatedAt) {
+        return res.status(401).json({
+          success: false,
+          message: 'Session has been invalidated by administrator. Please log in again.',
+        });
+      }
+    }
+
     next();
   } catch (error) {
     return res.status(401).json({

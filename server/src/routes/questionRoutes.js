@@ -9,6 +9,7 @@ const {
   bulkUploadQuestions,
   importDocumentQuestions,
   downloadDocumentTemplate,
+  reportQuestion,
 } = require('../controllers/questionController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 const { uploadDocument } = require('../middleware/uploadMiddleware');
@@ -19,6 +20,10 @@ router.get('/pdf-template', downloadDocumentTemplate);
 
 // Protect all remaining question management routes
 router.use(protect);
+
+// Question Report endpoint (accessible to all authenticated users/students)
+router.post('/reports', reportQuestion);
+
 router.use(authorize('admin', 'teacher'));
 
 router.route('/')

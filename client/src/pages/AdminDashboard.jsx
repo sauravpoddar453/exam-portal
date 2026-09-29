@@ -32,11 +32,22 @@ import {
   Check,
   Copy,
   RefreshCw,
-  Award
+  Award,
+  Megaphone,
+  Server,
+  HardDrive,
+  Send,
+  TrendingUp,
+  LogOut,
+  FileText,
+  ShieldCheck,
+  AlertCircle
 } from 'lucide-react';
 import { 
   BarChart, 
   Bar, 
+  LineChart,
+  Line,
   XAxis, 
   YAxis, 
   Tooltip, 
@@ -85,11 +96,37 @@ export default function AdminDashboard() {
   const [copiedCourseId, setCopiedCourseId] = useState(null);
   const [courseViewMode, setCourseViewMode] = useState('table'); // 'table' | 'cards'
 
-  // 5. Proctoring Security Audit State
+  // 5. Proctoring Security Audit & System Logs State
   const [proctorAttempts, setProctorAttempts] = useState([]);
   const [proctorLoading, setProctorLoading] = useState(false);
   const [proctorSearch, setProctorSearch] = useState('');
   const [proctorReasonFilter, setProctorReasonFilter] = useState('All');
+
+  const [systemLogs, setSystemLogs] = useState([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logTypeFilter, setLogTypeFilter] = useState('all');
+
+  // 6. Platform Usage & Question Quality State
+  const [platformUsage, setPlatformUsage] = useState(null);
+  const [qualityAuditData, setQualityAuditData] = useState(null);
+
+  // 7. Question Moderation Reports State
+  const [questionReports, setQuestionReports] = useState([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [reportStatusFilter, setReportStatusFilter] = useState('pending');
+
+  // 8. Broadcast Announcement State
+  const [broadcastMessage, setBroadcastMessage] = useState('');
+  const [broadcastAudience, setBroadcastAudience] = useState('all');
+  const [broadcastSending, setBroadcastSending] = useState(false);
+  const [broadcastHistory, setBroadcastHistory] = useState([]);
+  const [broadcastLoading, setBroadcastLoading] = useState(false);
+
+  // 9. Advanced Analytics State
+  const [subjectPerformance, setSubjectPerformance] = useState([]);
+  const [teacherLeaderboard, setTeacherLeaderboard] = useState([]);
+  const [peakUsageData, setPeakUsageData] = useState([]);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
   // API Call: Fetch Executive Overview Stats
   const fetchOverview = useCallback(async () => {

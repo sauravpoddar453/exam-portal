@@ -71,6 +71,9 @@ const userSchema = new mongoose.Schema(
       enum: ['pending', 'approved', 'rejected'],
       default: 'approved',
     },
+    tokenInvalidatedAt: {
+      type: Date,
+    },
   },
   {
     timestamps: true,

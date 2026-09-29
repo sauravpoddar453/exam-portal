@@ -1,5 +1,6 @@
 const { Resend } = require('resend');
 const nodemailer = require('nodemailer');
+const Setting = require('../models/Setting');
 
 // Initialize Resend client if API key is present
 const getResendClient = () => {
@@ -66,6 +67,9 @@ const sendEmail = async ({ to, subject, html, text }) => {
         console.error('Full Error:', response.error);
         return { success: false, error: response.error };
       }
+
+      // Track platform email stats
+      Setting.incrementKey('emailSentCount', recipient.length).catch(e => console.error(e.message));
 
       return { success: true, info: response.data || response };
     } catch (resendErr) {
